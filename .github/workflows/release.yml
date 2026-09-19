@@ -1,0 +1,158 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: pick
+        shell: bash
+        run: |
+          set -euo pipefail
+          crate=$(sed -n '/^\[workspace.package\]/,/^\[/p' Cargo.toml \
+                  | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
+          [ -n "$crate" ] || { echo "no version in Cargo.toml [workspace.package]"; exit 1; }
+          if [ "${GITHUB_REF_TYPE:-}" = tag ]; then
+            tag=${GITHUB_REF_NAME#v}
+            if [ "$tag" != "$crate" ]; then
+              echo "tag $GITHUB_REF_NAME says $tag, Cargo.toml says $crate" >&2
+              exit 1
+            fi
+          fi
+          echo "version=$crate" >> "$GITHUB_OUTPUT"
+          echo "building $crate"
+
+      - name: Third-party licenses resolve
+        run: cargo run -q -p xtask -- licenses --validate
+
+      - name: The licenses
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cargo run -q -p xtask -- licenses --out dist/THIRD-PARTY-LICENSES.txt
+          cp LICENSE dist/
+          cp crates/sep-typst/fonts/GUST-FONT-LICENSE.txt dist/
+          ls -l dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: licenses
+          path: dist/*
+          if-no-files-found: error
+
+  build:
+    needs: version
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+            smoke: true
+          - platform: windows-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+            smoke: true
+          - platform: macos-arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            ext: ""
+            smoke: true
+          - platform: macos-x64
+            runner: macos-latest
+            target: x86_64-apple-darwin
+            ext: ""
+            smoke: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Add the target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Show the toolchain
+        run: rustc -vV && cargo -V
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-${{ matrix.platform }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build
+        run: cargo build --profile dist --locked --target ${{ matrix.target }} --bin typesep
+
+      - name: Smoke test
+        if: matrix.smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin=target/${{ matrix.target }}/dist/typesep${{ matrix.ext }}
+          "$bin" --version
+          "$bin" style --preset a5-book --paper a4 > /dev/null
+          "$bin" presets > /dev/null
+
+      - name: Name the binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          name=typesep-${{ needs.version.outputs.version }}-${{ matrix.platform }}${{ matrix.ext }}
+          mkdir -p dist
+          cp target/${{ matrix.target }}/dist/typesep${{ matrix.ext }} "dist/$name"
+          ls -l dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum typesep-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "typesep $VERSION" \
+            --notes-file packaging/RELEASE-NOTES.md \
+            --draft \
+            --verify-tag

@@ -1,0 +1,95 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  checks:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show the toolchain
+        run: rustc -vV && cargo -V
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-checks-${{ hashFiles('Cargo.lock') }}
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --locked
+
+      # The fixture corpus is not in the repository, so the model test skips itself here.
+
+      - name: The style reference is what the binary prints
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo run -q -p sep-cli --bin typesep --locked -- reference > "$RUNNER_TEMP/reference.md"
+          diff -u docs/style-reference.md "$RUNNER_TEMP/reference.md" \
+            || { echo "docs/style-reference.md is stale: run make docs" >&2; exit 1; }
+
+      - name: Third-party licenses resolve
+        run: cargo run -q -p xtask --locked -- licenses --validate
+
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-latest
+            ext: ".exe"
+          - platform: macos-arm64
+            runner: macos-latest
+            ext: ""
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show the toolchain
+        run: rustc -vV && cargo -V
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-${{ matrix.platform }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build
+        run: cargo build --locked --bin typesep
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin=target/debug/typesep${{ matrix.ext }}
+          "$bin" --version
+          "$bin" style --preset a5-book --paper a4 > /dev/null
+          "$bin" presets > /dev/null

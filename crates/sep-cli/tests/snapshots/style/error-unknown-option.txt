@@ -1,0 +1,15 @@
+name: error: unknown option
+arg: "style"
+arg: "--preset"
+arg: "none"
+arg: "-s"
+arg: "typography.leadng=1.2"
+cwd: root
+exit: 1
+--- stdout ---
+
+--- stderr ---
+typesep: unknown style option "typography.leadng" (--set)
+  did you mean: typography.leading, typography.language, typography.tolerance?
+
+--- end ---

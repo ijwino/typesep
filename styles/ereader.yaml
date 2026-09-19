@@ -1,0 +1,14 @@
+# Sized for a 6-inch e-reader: tight margins, no page furniture.
+page:
+  size: 90mmx120mm
+  margins: {top: 5mm, bottom: 7mm, inner: 5mm, outer: 5mm}
+typography:
+  fontSize: 9pt
+  leading: 1.25
+  parIndent: 0pt
+  parSkip: 0.4em
+  hyphenate: true
+pageFurniture:
+  footer: {right: '{page}'}
+toc:
+  style: bullet

@@ -1,0 +1,12 @@
+# Double-spaced with wide margins, for annotating on paper.
+page:
+  size: letter
+  margins: {top: 1in, bottom: 1in, inner: 1.5in, outer: 1.5in}
+typography:
+  fontSize: 12pt
+  leading: 2.0
+  justify: false
+  hyphenate: false
+pageFurniture:
+  header: {right: '{title}'}
+  footer: {center: '{page} / {pages}'}

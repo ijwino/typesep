@@ -1,0 +1,16 @@
+name: error: flag and -s on one knob
+arg: "style"
+arg: "--font"
+arg: "EB Garamond"
+arg: "-s"
+arg: "fonts.main.scale=big"
+cwd: root
+exit: 1
+--- stdout ---
+
+--- stderr ---
+typesep: invalid value for "fonts.main" (--font, --set): expected a number
+  a family name, or {family, scale, features, file}
+  default: {"family":"TeX Gyre Termes","features":{"Ligatures":"TeX"}}
+
+--- end ---

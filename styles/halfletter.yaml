@@ -1,0 +1,27 @@
+# Half-letter (5.5x8.5in) single-column book page, Times-like serif, justified and hyphenated.
+page:
+  size: 5.5inx8.5in
+  margins: {top: 0.6in, bottom: 0.7in, inner: 0.54in, outer: 0.54in}
+
+typography:
+  fontSize: 10pt
+  leading: 1.5
+  justify: true
+  hyphenate: true
+  parIndent: 1.2em
+
+fonts:
+  main: {family: TeX Gyre Termes, features: {Ligatures: TeX}}
+  math: {family: TeX Gyre Termes Math}
+
+headings:
+  h1: {size: 1.8, style: regular, align: left, spaceBefore: 23pt, spaceAfter: 0.9em}
+  h2: {size: 1.25, style: bold, spaceBefore: 1.6em, spaceAfter: 0.6em}
+  h3: {size: 1.05, style: bold, spaceBefore: 1.2em, spaceAfter: 0.45em}
+
+pageFurniture:
+  footer: {right: '{page}'}
+
+toc:
+  style: bullet
+  title: ''

@@ -1,0 +1,12 @@
+# Comfortable on-screen reading on A4: generous margins, looser lines, larger type.
+page:
+  size: a4
+  margins: {top: 25mm, bottom: 28mm, inner: 32mm, outer: 32mm}
+typography:
+  fontSize: 11pt
+  leading: 1.35
+fonts:
+  main: {family: TeX Gyre Pagella, features: {Ligatures: TeX}}
+  math: {family: TeX Gyre Pagella Math}
+pageFurniture:
+  footer: {center: '{page}', right: ''}

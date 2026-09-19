@@ -1,0 +1,16 @@
+# Two columns and small type, to keep long entries to as few sheets as possible.
+page:
+  size: a4
+  margins: {top: 15mm, bottom: 15mm, inner: 14mm, outer: 14mm}
+  columns: 2
+  columnSep: 5mm
+typography:
+  fontSize: 8.5pt
+  leading: 1.05
+  parIndent: 1em
+  emergencyStretch: 4em
+headings:
+  h1: {size: 1.5}
+  h2: {size: 1.15}
+pageFurniture:
+  footer: {center: '{page}'}

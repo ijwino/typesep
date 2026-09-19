@@ -1,0 +1,14 @@
+name: error: enum list
+arg: "style"
+arg: "-s"
+arg: "links.sections=body,Notes"
+cwd: root
+exit: 1
+--- stdout ---
+
+--- stderr ---
+typesep: invalid value for "links.sections" (--set): "Notes" is not one of: preamble, body, bib, academic, oir, related, notes, supplements
+  a list drawn from: preamble, body, bib, academic, oir, related, notes, supplements
+  default: ["preamble","body","oir","notes","supplements"]
+
+--- end ---

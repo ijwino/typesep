@@ -1,0 +1,12 @@
+name: error: --set without =
+arg: "style"
+arg: "-s"
+arg: "page.size"
+cwd: root
+exit: 1
+--- stdout ---
+
+--- stderr ---
+typesep: --set expects path=value, got "page.size"
+
+--- end ---

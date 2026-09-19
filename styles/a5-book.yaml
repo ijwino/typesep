@@ -1,0 +1,13 @@
+# Double-sided A5 booklet: mirrored margins, running heads, binding allowance.
+page:
+  size: a5
+  twoside: true
+  margins: {top: 18mm, bottom: 20mm, inner: 20mm, outer: 15mm}
+  bindingOffset: 3mm
+typography:
+  fontSize: 10pt
+  leading: 1.2
+pageFurniture:
+  header: {left: '{section}', right: '{title}'}
+  footer: {right: '{page}'}
+  rules: {header: true}

@@ -1,0 +1,12 @@
+name: error: missing style file
+arg: "style"
+arg: "--style"
+arg: "<tmp>/missing.yaml"
+cwd: root
+exit: 1
+--- stdout ---
+
+--- stderr ---
+typesep: style file not found: <tmp>/missing.yaml
+
+--- end ---
