@@ -66,6 +66,7 @@ pub fn convert(formulas: &[Formula], macros: &MacroTable, fonts: &Fonts) -> Math
 
     let mut maths = Maths::default();
     typeset(&calls, fonts, &mut items, &mut maths);
+    typst::comemo::evict(0);
     maths.warnings.sort();
     maths.warnings.dedup();
     maths.items = items;

@@ -97,6 +97,19 @@ pub fn compile_document(
     creator: &str,
     progress: &mut dyn FnMut(String),
 ) -> Outcome {
+    let outcome = compile_and_recover(docs, style, opts, fonts, creator, progress);
+    typst::comemo::evict(0);
+    outcome
+}
+
+fn compile_and_recover(
+    docs: &[&EntryDoc],
+    style: &Style,
+    opts: EmitOptions<'_>,
+    fonts: &Fonts,
+    creator: &str,
+    progress: &mut dyn FnMut(String),
+) -> Outcome {
     let build = |rendered: &Rendered| {
         compile_pdf(
             &SepWorld::new(rendered.source.clone(), &rendered.figures, fonts),
