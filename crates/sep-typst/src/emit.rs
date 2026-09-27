@@ -750,7 +750,9 @@ fn code_inlines(nodes: &[Inline], ctx: &mut Ctx<'_>) -> String {
 fn pre_text(value: &str) -> String {
     value
         .split('\n')
-        .map(|line| escape_code(&line.replace('\t', "    ")).replace(' ', "\u{a0}"))
+        .map(|line| {
+            guard_line_start(&escape_code(&line.replace('\t', "    ")).replace(' ', "\u{a0}"))
+        })
         .collect::<Vec<_>>()
         .join("\\\n")
 }
