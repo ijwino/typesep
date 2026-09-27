@@ -79,7 +79,6 @@ pub struct Ctx<'a> {
     pub self_urls: BTreeSet<String>,
     pub note_bodies: Vec<NoteBody>,
     pub has_math: bool,
-    pub has_svg: bool,
     pub in_note: bool,
     pub math: MathPass,
     pub warnings: Vec<String>,
@@ -99,7 +98,6 @@ impl<'a> Ctx<'a> {
             self_urls: BTreeSet::new(),
             note_bodies: Vec::new(),
             has_math: false,
-            has_svg: false,
             in_note: false,
             math,
             warnings: Vec::new(),
@@ -299,9 +297,6 @@ fn image_html(node: &Figure, ctx: &mut Ctx) -> String {
             name
         }
     };
-    if name.ends_with(".svg") {
-        ctx.has_svg = true;
-    }
     format!("<img src=\"{}\" alt=\"{}\"/>", esc(&name), esc(&node.alt))
 }
 

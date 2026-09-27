@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Read;
 
 use sep_core::model::{
-    Attachment, AttachmentKind, Block, EntryDoc, EntryMeta, Inline, List, NoteRef, NoteTable,
-    TocItem,
+    Attachment, AttachmentKind, Block, EntryDoc, EntryMeta, Figure, Inline, List, NoteRef,
+    NoteTable, TocItem,
 };
 use sep_core::sections::{ALL_CONTENT_KEYS, ContentKey};
 use sep_core::style::{ResolveOptions, Style, resolve_style};
@@ -10,6 +11,7 @@ use sep_epub::nav::nav_items;
 use sep_epub::xhtml::{Ctx, MathPass, entry_html, xml_id};
 use sep_epub::{EpubError, EpubOptions, build_epub};
 use sep_typst::fonts::Fonts;
+use sep_typst::images::Image;
 use sep_typst::style::View;
 
 fn style() -> Style {
@@ -266,4 +268,47 @@ fn an_epub_of_no_entry_is_an_error() {
         },
     );
     assert!(matches!(built, Err(EpubError::Empty)));
+}
+
+#[test]
+fn an_svg_image_by_reference_does_not_mark_its_document_as_svg() {
+    let file = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("figure.svg");
+    std::fs::write(&file, "<svg xmlns=\"http://www.w3.org/2000/svg\"/>").unwrap();
+    let images = BTreeMap::from([(
+        "figure.svg".to_owned(),
+        Image {
+            file,
+            format: "svg",
+        },
+    )]);
+    let entry = doc(vec![Block::Figure(Figure {
+        src: "figure.svg".into(),
+        alt: "a figure".into(),
+        caption: None,
+        id: None,
+        inline: None,
+    })]);
+    let style = style();
+    let sections: BTreeSet<ContentKey> = ALL_CONTENT_KEYS.into_iter().collect();
+    let fonts = Fonts::embedded();
+    let epub = build_epub(
+        &[&entry],
+        &style,
+        EpubOptions {
+            sections: &sections,
+            images: &images,
+            volume_title: None,
+            fonts: &fonts,
+        },
+    )
+    .unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(epub.bytes)).unwrap();
+    let mut opf = String::new();
+    archive
+        .by_name("OEBPS/content.opf")
+        .unwrap()
+        .read_to_string(&mut opf)
+        .unwrap();
+    assert!(opf.contains("media-type=\"image/svg+xml\""), "{opf}");
+    assert!(!opf.contains("properties=\"svg\""), "{opf}");
 }

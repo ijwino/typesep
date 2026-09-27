@@ -90,19 +90,10 @@ pub fn build_epub(
         };
         ctx.ids = std::mem::take(&mut ids[index]);
         ctx.has_math = false;
-        ctx.has_svg = false;
         let name = format!("entry-{}.xhtml", index + 1);
         let body = entry_html(doc, &mut ctx, options.sections);
         documents.push((name.clone(), document_xhtml(&doc.meta.title, &body)));
-        let properties = [
-            if ctx.has_math { "mathml" } else { "" },
-            if ctx.has_svg { "svg" } else { "" },
-        ]
-        .iter()
-        .filter(|p| !p.is_empty())
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(" ");
+        let properties = if ctx.has_math { "mathml" } else { "" }.to_owned();
         chapters.push(Chapter {
             name: name.clone(),
             title: doc.meta.title.clone(),
