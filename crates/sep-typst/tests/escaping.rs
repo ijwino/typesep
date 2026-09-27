@@ -151,6 +151,12 @@ fn markup_in_text_stays_text() {
         "= heading",
         "/ term: x",
         "12. twelve",
+        "== second level",
+        "=\u{a0}Heading?",
+        "-\u{a0}x",
+        "+\u{2003}y",
+        "/\u{a0}term: z",
+        "7.\u{a0}seven",
         "a *b* _c_ #d $e$ `f` <g> @h [i] ~j",
         "C:\\dir and back\\",
         "see https://x.test/a//b /* not a comment */",
@@ -167,6 +173,8 @@ fn markup_in_code_stays_text() {
         ])],
         vec![para(vec![code("x // y /* z */")])],
         vec![pre("fn main() {\n    let a = [1, 2]; // #x\n}")],
+        vec![pre("- first line")],
+        vec![pre("= first line")],
     ]);
 }
 

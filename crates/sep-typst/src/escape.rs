@@ -72,13 +72,17 @@ pub fn guard_line_start(text: &str) -> String {
         return text.to_owned();
     };
     let guard = match first {
-        '-' | '+' | '=' | '/' => matches!(chars.next(), None | Some(' ')),
+        '-' | '+' | '/' => chars.next().is_none_or(char::is_whitespace),
+        '=' => rest
+            .trim_start_matches('=')
+            .chars()
+            .next()
+            .is_none_or(char::is_whitespace),
         c if c.is_ascii_digit() => {
             let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
-            rest[digits..].starts_with('.') && {
-                let after = &rest[digits + 1..];
-                after.is_empty() || after.starts_with(' ')
-            }
+            rest[digits..]
+                .strip_prefix('.')
+                .is_some_and(|after| after.chars().next().is_none_or(char::is_whitespace))
         }
         _ => false,
     };
@@ -167,6 +171,10 @@ mod tests {
         assert_eq!(guard_line_start("- item"), "\\- item");
         assert_eq!(guard_line_start("  + item"), "  \\+ item");
         assert_eq!(guard_line_start("= heading"), "\\= heading");
+        assert_eq!(guard_line_start("== heading"), "\\== heading");
+        assert_eq!(guard_line_start("-\u{a0}item"), "\\-\u{a0}item");
+        assert_eq!(guard_line_start("3.\u{a0}three"), "\\3.\u{a0}three");
+        assert_eq!(guard_line_start("=> arrow"), "=> arrow");
         assert_eq!(guard_line_start("/ term"), "\\/ term");
         assert_eq!(guard_line_start("12. Twelve"), "\\12. Twelve");
         assert_eq!(guard_line_start("-5 degrees"), "-5 degrees");
