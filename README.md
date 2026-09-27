@@ -39,7 +39,7 @@ make test
 ```sh
 typesep turing-machine                                   # writes out/turing-machine.pdf
 typesep --format epub --preset ereader turing-machine    # an EPUB sized for e-readers
-typesep --merge "Logic" logic-classical logic-modal      # bundles three entries into one volume
+typesep --merge "Logic" logic-classical logic-modal      # bundles two entries into one volume
 typesep kant --paper a4 --font "EB Garamond" --leading 1.3
 typesep kant -s page.margins.top=1in -s toc.pageNumbers=true
 ```
