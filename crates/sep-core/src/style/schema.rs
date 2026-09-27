@@ -538,6 +538,8 @@ fn heading_knobs(level: &str, d: HeadingDefaults) -> Vec<Knob> {
     ]
 }
 
+const COVER_FIELDS: [&str; 5] = ["title", "author", "dates", "sourceUrl", "copyright"];
+
 #[rustfmt::skip]
 fn build_knobs() -> Vec<Knob> {
     use KnobType::*;
@@ -632,7 +634,7 @@ fn build_knobs() -> Vec<Knob> {
 
         k("cover.style", en(&["simple", "none", "custom"]), text("simple"), "Title page style."),
         k("cover.template", String, text(""), "Path to a Typst title page, used when cover.style is \"custom\"."),
-        k("cover.fields", StringList, list(&["title", "author", "dates", "sourceUrl", "copyright"]), "Which fields the simple cover shows, in order. Known fields: title, author, dates, sourceUrl, copyright. The copyright field is the source, the retrieval date and the copyright line; the terms the entry is read under are on the colophon, the last page, which no setting removes."),
+        k("cover.fields", EnumList(COVER_FIELDS.to_vec()), list(&COVER_FIELDS), "Which fields the simple cover shows, in order. The copyright field is the source, the retrieval date and the copyright line; the terms the entry is read under are on the colophon, the last page, which no setting removes."),
 
         k("output.bookmarks", Boolean, Value::Bool(true), "Write a PDF outline from the headings."),
 
@@ -858,6 +860,15 @@ mod tests {
         assert_eq!(
             PaperSize.coerce(&s("0mmx0mm")).unwrap_err(),
             "paper dimensions must be greater than 0, got \"0mmx0mm\""
+        );
+        let fields = knob("cover.fields").unwrap();
+        assert_eq!(
+            fields.kind.coerce(&s("title, author")).unwrap(),
+            Value::List(vec![s("title"), s("author")])
+        );
+        assert_eq!(
+            fields.kind.coerce(&s("title,autor")).unwrap_err(),
+            "\"autor\" is not one of: title, author, dates, sourceUrl, copyright"
         );
         let sections = knob("links.sections").unwrap();
         assert_eq!(

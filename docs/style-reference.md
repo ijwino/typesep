@@ -213,7 +213,7 @@ Under the hood:
 | --- | --- | --- | --- |
 | `cover.style` | one of: simple, none, custom | `"simple"` | Title page style. |
 | `cover.template` | text | `""` | Path to a Typst title page, used when cover.style is "custom". |
-| `cover.fields` | a list of strings | `["title","author","dates","sourceUrl","copyright"]` | Which fields the simple cover shows, in order. Known fields: title, author, dates, sourceUrl, copyright. The copyright field is the source, the retrieval date and the copyright line; the terms the entry is read under are on the colophon, the last page, which no setting removes. |
+| `cover.fields` | a list drawn from: title, author, dates, sourceUrl, copyright | `["title","author","dates","sourceUrl","copyright"]` | Which fields the simple cover shows, in order. The copyright field is the source, the retrieval date and the copyright line; the terms the entry is read under are on the colophon, the last page, which no setting removes. |
 
 ## Output
 
