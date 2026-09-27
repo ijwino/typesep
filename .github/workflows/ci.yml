@@ -27,13 +27,7 @@ jobs:
       - name: Show the toolchain
         run: rustc -vV && cargo -V
 
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-          key: cargo-checks-${{ hashFiles('Cargo.lock') }}
+      - uses: Swatinem/rust-cache@v2
 
       - name: Formatting
         run: cargo fmt --all -- --check
@@ -88,13 +82,9 @@ jobs:
       - name: Show the toolchain
         run: rustc -vV && cargo -V
 
-      - uses: actions/cache@v6
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-          key: cargo-${{ matrix.platform }}-${{ hashFiles('Cargo.lock') }}
+          key: ${{ matrix.platform }}
 
       - name: Build
         run: cargo build --locked --bin typesep

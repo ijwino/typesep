@@ -94,13 +94,9 @@ jobs:
       - name: Show the toolchain
         run: rustc -vV && cargo -V
 
-      - uses: actions/cache@v6
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-          key: cargo-${{ matrix.platform }}-${{ hashFiles('Cargo.lock') }}
+          key: ${{ matrix.platform }}
 
       - name: Tests
         if: matrix.native
