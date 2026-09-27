@@ -200,6 +200,7 @@ fn markup_in_code_stays_text() {
         ])],
         vec![para(vec![code("x // y /* z */")])],
         vec![para(vec![code("a... b -? c -1 d ~ e -- f --- g")])],
+        vec![para(vec![code("line\n- item\n= x\n\n+ y")])],
         vec![pre("a... b -? c -1 d ~ e -- f")],
         vec![pre("fn main() {\n    let a = [1, 2]; // #x\n}")],
         vec![pre("- first line")],

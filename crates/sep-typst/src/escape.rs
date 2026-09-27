@@ -38,7 +38,7 @@ pub fn escape_code(text: &str) -> String {
                 out.push(c);
             }
             '/' if matches!(chars.peek(), Some('/') | Some('*')) => out.push_str("\\/"),
-            '\n' => out.push_str("\\\n"),
+            '\n' | '\r' => out.push(' '),
             _ => out.push(c),
         }
     }
@@ -153,12 +153,12 @@ mod tests {
     }
 
     #[test]
-    fn code_keeps_quotes_lines_and_shorthands_literal() {
+    fn code_keeps_quotes_and_shorthands_literal_on_one_line() {
         assert_eq!(
             escape_code("it's \"x\" --y..."),
             "it\\'s \\\"x\\\" \\-\\-y\\.\\.\\."
         );
-        assert_eq!(escape_code("a\nb"), "a\\\nb");
+        assert_eq!(escape_code("a\nb"), "a b");
     }
 
     #[test]
