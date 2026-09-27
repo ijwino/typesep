@@ -200,6 +200,21 @@ fn io_error(path: &Path, source: io::Error) -> LibraryError {
     }
 }
 
+fn write_atomically(target: &Path, bytes: &[u8]) -> Result<(), LibraryError> {
+    let name = target
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let tmp = target.with_file_name(format!("{name}.{}.tmp", std::process::id()));
+    let written = fs::write(&tmp, bytes)
+        .map_err(|e| io_error(&tmp, e))
+        .and_then(|()| fs::rename(&tmp, target).map_err(|e| io_error(target, e)));
+    if written.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    written
+}
+
 #[derive(Debug, Clone)]
 pub struct Library {
     dir: PathBuf,
@@ -292,10 +307,7 @@ impl Library {
         fs::create_dir_all(&dir).map_err(|e| io_error(&dir, e))?;
         let text =
             serde_json::to_string_pretty(meta).expect("a UnitMeta is representable as JSON") + "\n";
-        let target = dir.join(META);
-        let tmp = dir.join(format!("{META}.{}.tmp", std::process::id()));
-        fs::write(&tmp, text).map_err(|e| io_error(&tmp, e))?;
-        fs::rename(&tmp, &target).map_err(|e| io_error(&target, e))
+        write_atomically(&dir.join(META), text.as_bytes())
     }
 
     fn unit_or_new(&self, place: &Place) -> UnitMeta {
@@ -315,7 +327,7 @@ impl Library {
             if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent).map_err(|e| io_error(parent, e))?;
             }
-            fs::write(&target, bytes).map_err(|e| io_error(&target, e))?;
+            write_atomically(&target, bytes)?;
         }
         let mut unit = self.unit_or_new(&place);
         unit.files.insert(place.file.clone(), meta);
@@ -677,6 +689,34 @@ mod tests {
         assert_eq!(library.read_body(gone).unwrap(), None);
         library.write(gone, b"<p>back</p>", None, None).unwrap();
         assert!(!library.is_missing(gone).unwrap());
+    }
+
+    #[test]
+    fn a_rewritten_file_is_replaced_whole_never_rewritten_in_place() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = Library::new(temp.path());
+        library.init().unwrap();
+        library.write(TM, b"<p>first</p>", None, None).unwrap();
+        let held = temp.path().join("entries/turing-machine/index.html");
+        let link = temp.path().join("old.html");
+        fs::hard_link(&held, &link).unwrap();
+
+        library.write(TM, b"<p>second</p>", None, None).unwrap();
+        assert_eq!(fs::read(&held).unwrap(), b"<p>second</p>");
+        assert_eq!(
+            fs::read(&link).unwrap(),
+            b"<p>first</p>",
+            "the old file is untouched until the new one takes its name"
+        );
+        assert!(
+            !held
+                .parent()
+                .unwrap()
+                .read_dir()
+                .unwrap()
+                .filter_map(Result::ok)
+                .any(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+        );
     }
 
     #[test]
