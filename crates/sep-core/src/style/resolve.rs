@@ -506,7 +506,7 @@ mod tests {
         let err = resolve(Some("none"), &["page.margins.top=banana"]).unwrap_err();
         assert_eq!(
             err.0,
-            "invalid value for \"page.margins.top\" (--set): expected a length like \"0.6in\" or \"12pt\"\n  a length such as 0.6in, 12pt, 1.5em (units: pt, bp, mm, cm, in, pc, em, ex, sp)\n  default: \"20mm\""
+            "invalid value for \"page.margins.top\" (--set): expected a length like \"0.6in\" or \"12pt\"\n  a length such as 0.6in, 12pt, 1.5em (units: pt, bp, mm, cm, in, pc, em, ex, sp), 0 or more\n  default: \"20mm\""
         );
         let err = resolve(Some("none"), &["fonts.main.scale=big"]).unwrap_err();
         assert_eq!(

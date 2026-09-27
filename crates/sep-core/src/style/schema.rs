@@ -21,6 +21,45 @@ pub enum KnobType {
     Template,
     Enum(Vec<&'static str>),
     EnumList(Vec<&'static str>),
+    Min(Bound, Box<KnobType>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bound {
+    NonNegative,
+    Positive,
+}
+
+impl Bound {
+    fn describe(self) -> &'static str {
+        match self {
+            Bound::NonNegative => "0 or more",
+            Bound::Positive => "greater than 0",
+        }
+    }
+
+    fn check(self, n: f64) -> Result<(), String> {
+        let ok = match self {
+            Bound::NonNegative => n >= 0.0,
+            Bound::Positive => n > 0.0,
+        };
+        if ok {
+            Ok(())
+        } else {
+            Err(format!("must be {}", self.describe()))
+        }
+    }
+
+    fn check_value(self, v: &Value) -> Result<(), String> {
+        let n = match v {
+            Value::Number(n) => *n,
+            Value::String(text) => match_length(text)
+                .and_then(|(n, _)| js::number(n))
+                .unwrap_or(f64::NAN),
+            _ => f64::NAN,
+        };
+        self.check(n)
+    }
 }
 
 pub fn match_ignoring_case<'a>(values: &[&'a str], input: &str) -> Option<&'a str> {
@@ -52,6 +91,7 @@ fn coerce_boolean(v: &Value) -> Result<Value, String> {
 fn coerce_number(v: &Value) -> Result<f64, String> {
     let n = match v {
         Value::Number(n) => *n,
+        Value::String(s) if js::trim(s).is_empty() => f64::NAN,
         other => js::number(&other.js_string()).unwrap_or(f64::NAN),
     };
     if n.is_finite() {
@@ -110,6 +150,11 @@ fn coerce_paper_size(v: &Value) -> Result<String, String> {
     };
     let w = coerce_length(&Value::str(&m[1]))?;
     let h = coerce_length(&Value::str(&m[2]))?;
+    for dim in [&w, &h] {
+        Bound::Positive
+            .check_value(&Value::str(dim))
+            .map_err(|_| format!("paper dimensions must be greater than 0, got \"{text}\""))?;
+    }
     Ok(format!("{w}x{h}"))
 }
 
@@ -158,6 +203,9 @@ fn coerce_font(v: &Value) -> Result<Value, String> {
     }
     if let Some(scale) = spec.get("scale") {
         let n = coerce_number(scale)?;
+        Bound::Positive
+            .check(n)
+            .map_err(|e| format!("a font scale {e}"))?;
         spec.insert("scale", Value::Number(n));
     }
     if let Some(features) = spec.get("features")
@@ -273,12 +321,14 @@ impl KnobType {
             }
             KnobType::Enum(values) => format!("one of: {}", values.join(", ")),
             KnobType::EnumList(values) => format!("a list drawn from: {}", values.join(", ")),
+            KnobType::Min(bound, inner) => format!("{}, {}", inner.describe(), bound.describe()),
         }
     }
 
     pub fn values(&self) -> Option<&[&'static str]> {
         match self {
             KnobType::Enum(values) | KnobType::EnumList(values) => Some(values),
+            KnobType::Min(_, inner) => inner.values(),
             _ => None,
         }
     }
@@ -322,6 +372,11 @@ impl KnobType {
                 }
                 Ok(string_list(items))
             }
+            KnobType::Min(bound, inner) => {
+                let typed = inner.coerce(v)?;
+                bound.check_value(&typed)?;
+                Ok(typed)
+            }
         }
     }
 
@@ -352,6 +407,14 @@ fn k(path: impl Into<String>, kind: KnobType, default: Value, doc: impl Into<Str
 
 fn en(values: &[&'static str]) -> KnobType {
     KnobType::Enum(values.to_vec())
+}
+
+fn positive(kind: KnobType) -> KnobType {
+    KnobType::Min(Bound::Positive, Box::new(kind))
+}
+
+fn non_negative(kind: KnobType) -> KnobType {
+    KnobType::Min(Bound::NonNegative, Box::new(kind))
 }
 
 fn text(s: &str) -> Value {
@@ -394,7 +457,7 @@ fn heading_knobs(level: &str, d: HeadingDefaults) -> Vec<Knob> {
     vec![
         k(
             format!("headings.{level}.size"),
-            KnobType::FactorOrLength,
+            positive(KnobType::FactorOrLength),
             num(d.size),
             format!("Font size of {level} (multiplier of body size, or absolute)."),
         ),
@@ -458,17 +521,17 @@ fn build_knobs() -> Vec<Knob> {
     use KnobType::*;
     let mut knobs = vec![
         k("page.size", PaperSize, text("a5"), "Paper size."),
-        k("page.margins.top", Length, text("20mm"), "Top margin."),
-        k("page.margins.bottom", Length, text("22mm"), "Bottom margin."),
-        k("page.margins.inner", Length, text("18mm"), "Inner margin (left on one-sided documents)."),
-        k("page.margins.outer", Length, text("18mm"), "Outer margin (right on one-sided documents)."),
+        k("page.margins.top", non_negative(Length), text("20mm"), "Top margin."),
+        k("page.margins.bottom", non_negative(Length), text("22mm"), "Bottom margin."),
+        k("page.margins.inner", non_negative(Length), text("18mm"), "Inner margin (left on one-sided documents)."),
+        k("page.margins.outer", non_negative(Length), text("18mm"), "Outer margin (right on one-sided documents)."),
         k("page.twoside", Boolean, Value::Bool(false), "Alternate inner/outer margins and page numbers for double-sided printing."),
-        k("page.bindingOffset", Length, text("0pt"), "Extra inner margin reserved for binding."),
-        k("page.columns", Integer, num(1.0), "Number of text columns."),
-        k("page.columnSep", Length, text("1.2em"), "Gap between columns."),
+        k("page.bindingOffset", non_negative(Length), text("0pt"), "Extra inner margin reserved for binding."),
+        k("page.columns", positive(Integer), num(1.0), "Number of text columns."),
+        k("page.columnSep", non_negative(Length), text("1.2em"), "Gap between columns."),
 
-        k("typography.fontSize", Length, text("10pt"), "Body font size."),
-        k("typography.leading", FactorOrLength, num(1.15), "Line spacing, as a multiplier or an absolute baseline distance."),
+        k("typography.fontSize", positive(Length), text("10pt"), "Body font size."),
+        k("typography.leading", positive(FactorOrLength), num(1.15), "Line spacing, as a multiplier or an absolute baseline distance."),
         k("typography.justify", Boolean, Value::Bool(true), "Justify body text (off gives a ragged right edge)."),
         k("typography.hyphenate", Boolean, Value::Bool(true), "Allow hyphenation at line breaks."),
         k("typography.language", String, text("english"), "Babel language, which selects the hyphenation patterns."),
@@ -481,7 +544,7 @@ fn build_knobs() -> Vec<Knob> {
         k("typography.penalties.club", Integer, num(10000.0), "Penalty for an orphan line. 10000 forbids it."),
         k("typography.penalties.hyphen", Integer, num(50.0), "Penalty for breaking a word. Higher means fewer hyphens."),
         k("typography.tolerance", Integer, num(2000.0), "How much looseness TeX tolerates in a line before complaining."),
-        k("typography.emergencyStretch", Length, text("3em"), "Extra stretch allowed on a final pass to avoid overfull lines."),
+        k("typography.emergencyStretch", non_negative(Length), text("3em"), "Extra stretch allowed on a final pass to avoid overfull lines."),
 
         k("fonts.main", Font, font("TeX Gyre Termes", None, &[("Ligatures", "TeX")]), "Body font."),
         k("fonts.sans", Font, font("TeX Gyre Heros", Some(0.95), &[]), "Sans-serif font."),
@@ -498,21 +561,21 @@ fn build_knobs() -> Vec<Knob> {
     knobs.extend([
         k("blocks.blockquote.leftIndent", Length, text("1.5em"), "Left indent of block quotations."),
         k("blocks.blockquote.rightIndent", Length, text("1em"), "Right indent of block quotations."),
-        k("blocks.blockquote.size", FactorOrLength, num(0.95), "Font size of block quotations."),
+        k("blocks.blockquote.size", positive(FactorOrLength), num(0.95), "Font size of block quotations."),
         k("blocks.blockquote.spaceAround", Length, text("0.6em"), "Vertical space above and below block quotations."),
         k("blocks.list.itemSep", Length, text("0.25em"), "Space between list items."),
         k("blocks.list.leftMargin", Length, text("1.4em"), "Indent of list items."),
         k("blocks.list.bullets", StringList, list(&["\\textbullet", "\\textopenbullet", "\\textendash"]), "Bullet markers, outermost level first."),
-        k("blocks.code.size", FactorOrLength, num(0.9), "Font size of code, inline and preformatted."),
+        k("blocks.code.size", positive(FactorOrLength), num(0.9), "Font size of code, inline and preformatted."),
         k("blocks.table.style", en(&["booktabs", "grid", "plain"]), text("booktabs"), "Table rule style."),
-        k("blocks.table.size", FactorOrLength, num(0.9), "Font size inside tables."),
-        k("blocks.figure.maxWidth", Number, num(1.0), "Maximum figure width as a fraction of the text width."),
+        k("blocks.table.size", positive(FactorOrLength), num(0.9), "Font size inside tables."),
+        k("blocks.figure.maxWidth", positive(Number), num(1.0), "Maximum figure width as a fraction of the text width."),
         k("blocks.figure.align", en(&["left", "center", "right"]), text("center"), "Figure alignment."),
-        k("blocks.figure.captionSize", FactorOrLength, num(0.9), "Figure caption size."),
+        k("blocks.figure.captionSize", positive(FactorOrLength), num(0.9), "Figure caption size."),
         k("blocks.bibliography.hangingIndent", Length, text("1.5em"), "Hanging indent of bibliography entries."),
         k("blocks.bibliography.itemSep", Length, text("0.4em"), "Space between bibliography entries."),
-        k("blocks.bibliography.size", FactorOrLength, num(0.95), "Font size of the bibliography."),
-        k("blocks.footnote.size", FactorOrLength, num(0.85), "Font size of footnotes and endnotes."),
+        k("blocks.bibliography.size", positive(FactorOrLength), num(0.95), "Font size of the bibliography."),
+        k("blocks.footnote.size", positive(FactorOrLength), num(0.85), "Font size of footnotes and endnotes."),
         k("blocks.footnote.rule", Boolean, Value::Bool(true), "Draw the rule above footnotes."),
 
         k("pageFurniture.header.left", Template, text(""), "Header, left slot. With twoside it mirrors: left on recto, right on verso (the inner edge)."),
@@ -521,16 +584,16 @@ fn build_knobs() -> Vec<Knob> {
         k("pageFurniture.footer.left", Template, text(""), "Footer, left slot. Mirrors like the header when twoside."),
         k("pageFurniture.footer.center", Template, text(""), "Footer, center slot."),
         k("pageFurniture.footer.right", Template, text("{page}"), "Footer, right slot. Mirrors like the header when twoside."),
-        k("pageFurniture.footer.skip", FactorOrLength, num(0.5),
+        k("pageFurniture.footer.skip", non_negative(FactorOrLength), num(0.5),
             "Distance from the bottom of the text block down to the footer baseline. A multiplier is a fraction of the bottom margin (0.5 puts the page number midway between the text and the paper edge); a length is used as is."),
         k("pageFurniture.rules.header", Boolean, Value::Bool(false), "Draw a rule under the header."),
         k("pageFurniture.rules.footer", Boolean, Value::Bool(false), "Draw a rule above the footer."),
-        k("pageFurniture.size", FactorOrLength, num(0.85), "Font size of headers and footers."),
+        k("pageFurniture.size", positive(FactorOrLength), num(0.85), "Font size of headers and footers."),
         k("pageFurniture.numbering.style", en(&["arabic", "roman", "Roman", "alph", "Alph"]), text("arabic"), "Page number style."),
         k("pageFurniture.numbering.startAt", Integer, num(1.0), "First page number."),
 
         k("toc.style", en(&["bullet", "latex", "none"]), text("bullet"), "Table of contents style. \"bullet\" mirrors the SEP web layout."),
-        k("toc.depth", Integer, num(3.0), "Deepest heading level listed."),
+        k("toc.depth", positive(Integer), num(3.0), "Deepest heading level listed."),
         k("toc.pageNumbers", Boolean, Value::Bool(false), "Show page numbers in the bullet table of contents. The latex style always shows them."),
         k("toc.title", String, text(""), "Heading above the table of contents. Empty means no heading."),
 
@@ -542,7 +605,7 @@ fn build_knobs() -> Vec<Knob> {
 
         k("notes.style", en(&["footnote", "endnote", "appendix"]), text("footnote"),
             "How the entry's notes (notes.html) are set: as footnotes, as endnotes after the body, or as an appendix that the markers link to."),
-        k("notes.maxHeight", FactorOrLength, num(1.0),
+        k("notes.maxHeight", non_negative(FactorOrLength), num(1.0),
             "How tall a numbered note may be as a footnote: a multiplier of the text height, or a length. A taller note is set at the end of the entry instead, with a one-line footnote in its place giving the note number and the page. 0 turns this off."),
 
         k("cover.style", en(&["simple", "none", "custom"]), text("simple"), "Title page style."),
@@ -615,9 +678,9 @@ mod tests {
         );
         assert_eq!(Number.coerce(&s(" 1.5 ")).unwrap(), Value::Number(1.5));
         assert_eq!(
-            Number.coerce(&s("")).unwrap(),
-            Value::Number(0.0),
-            "Number('') is 0"
+            Number.coerce(&s(" ")).unwrap_err(),
+            "expected a number",
+            "unlike Number(''), an empty value is not 0"
         );
         assert_eq!(Number.coerce(&s("two")).unwrap_err(), "expected a number");
         assert_eq!(
@@ -721,6 +784,39 @@ mod tests {
             numbering.kind.coerce(&s("ROMAN")).is_err(),
             "case tells roman and Roman apart"
         );
+        let columns = &knob("page.columns").unwrap().kind;
+        assert_eq!(columns.coerce(&s("2")).unwrap(), Value::Number(2.0));
+        assert_eq!(
+            columns.coerce(&s("0")).unwrap_err(),
+            "must be greater than 0"
+        );
+        assert_eq!(columns.coerce(&s("")).unwrap_err(), "expected a number");
+        assert_eq!(columns.describe(), "a whole number, greater than 0");
+        let margin = &knob("page.margins.top").unwrap().kind;
+        assert_eq!(margin.coerce(&s("0pt")).unwrap(), s("0pt"));
+        assert_eq!(margin.coerce(&s("-5mm")).unwrap_err(), "must be 0 or more");
+        let leading = &knob("typography.leading").unwrap().kind;
+        assert_eq!(
+            leading.coerce(&s("0")).unwrap_err(),
+            "must be greater than 0"
+        );
+        assert_eq!(
+            leading.coerce(&s("-1pt")).unwrap_err(),
+            "must be greater than 0"
+        );
+        assert_eq!(leading.coerce(&s("14pt")).unwrap(), s("14pt"));
+        assert_eq!(
+            knob("typography.fontSize")
+                .unwrap()
+                .kind
+                .coerce(&s("0pt"))
+                .unwrap_err(),
+            "must be greater than 0"
+        );
+        assert_eq!(
+            PaperSize.coerce(&s("0mmx0mm")).unwrap_err(),
+            "paper dimensions must be greater than 0, got \"0mmx0mm\""
+        );
         let sections = knob("links.sections").unwrap();
         assert_eq!(
             sections.kind.coerce(&s("body,notes")).unwrap(),
@@ -790,6 +886,11 @@ mod tests {
         );
         let bad = super::super::yaml::parse("{family: X, scale: big}").unwrap();
         assert_eq!(main.kind.coerce(&bad).unwrap_err(), "expected a number");
+        let bad = super::super::yaml::parse("{family: X, scale: 0}").unwrap();
+        assert_eq!(
+            main.kind.coerce(&bad).unwrap_err(),
+            "a font scale must be greater than 0"
+        );
         let bad = super::super::yaml::parse("{family: X, features: TeX}").unwrap();
         assert_eq!(
             main.kind.coerce(&bad).unwrap_err(),

@@ -8,7 +8,7 @@ exit: 1
 
 --- stderr ---
 typesep: invalid value for "page.margins.top" (--set): expected a length like "0.6in" or "12pt"
-  a length such as 0.6in, 12pt, 1.5em (units: pt, bp, mm, cm, in, pc, em, ex, sp)
+  a length such as 0.6in, 12pt, 1.5em (units: pt, bp, mm, cm, in, pc, em, ex, sp), 0 or more
   default: "20mm"
 
 --- end ---
