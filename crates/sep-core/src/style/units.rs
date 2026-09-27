@@ -80,10 +80,15 @@ pub fn paper_dimensions(size: &str) -> (String, String) {
     if let Some((w, h)) = paper_size(size) {
         return (w.to_owned(), h.to_owned());
     }
-    let mut parts = size.splitn(2, 'x');
-    let w = parts.next().unwrap_or("").to_owned();
-    let h = parts.next().unwrap_or("").to_owned();
-    (w, h)
+    let at = size
+        .match_indices('x')
+        .map(|(i, _)| i)
+        .find(|&i| match_length(&size[..i]).is_some() && match_length(&size[i + 1..]).is_some())
+        .or_else(|| size.find('x'));
+    match at {
+        Some(i) => (size[..i].to_owned(), size[i + 1..].to_owned()),
+        None => (size.to_owned(), String::new()),
+    }
 }
 
 #[cfg(test)]
@@ -113,6 +118,11 @@ mod tests {
         assert_eq!(
             paper_dimensions("5.5inx8.5in"),
             ("5.5in".to_owned(), "8.5in".to_owned())
+        );
+        assert_eq!(
+            paper_dimensions("10exx20ex"),
+            ("10ex".to_owned(), "20ex".to_owned()),
+            "the split falls between two lengths, not at the first x"
         );
         assert_eq!(fmt_pt(20.0), "20");
         assert_eq!(fmt_pt(14.4540001), "14.454");

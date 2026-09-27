@@ -137,7 +137,7 @@ fn the_style_surface_answers_as_it_was_frozen() {
         }
     }
 
-    assert_eq!(files.len(), 28, "a style snapshot has gone missing");
+    assert_eq!(files.len(), 29, "a style snapshot has gone missing");
     assert!(
         failures.is_empty(),
         "the style surface has moved under its snapshots:\n{}",

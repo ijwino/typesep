@@ -151,6 +151,11 @@ fn coerce_paper_size(v: &Value) -> Result<String, String> {
     let w = coerce_length(&Value::str(&m[1]))?;
     let h = coerce_length(&Value::str(&m[2]))?;
     for dim in [&w, &h] {
+        if dim.ends_with("em") || dim.ends_with("ex") {
+            return Err(format!(
+                "paper dimensions need an absolute unit (pt, bp, mm, cm, in, pc, sp), got \"{text}\""
+            ));
+        }
         Bound::Positive
             .check_value(&Value::str(dim))
             .map_err(|_| format!("paper dimensions must be greater than 0, got \"{text}\""))?;
@@ -813,6 +818,11 @@ mod tests {
                 .unwrap_err(),
             "must be greater than 0"
         );
+        assert_eq!(
+            PaperSize.coerce(&s("10exx20ex")).unwrap_err(),
+            "paper dimensions need an absolute unit (pt, bp, mm, cm, in, pc, sp), got \"10exx20ex\""
+        );
+        assert!(PaperSize.coerce(&s("100mmx2em")).is_err());
         assert_eq!(
             PaperSize.coerce(&s("0mmx0mm")).unwrap_err(),
             "paper dimensions must be greater than 0, got \"0mmx0mm\""
