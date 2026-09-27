@@ -310,8 +310,20 @@ impl Library {
         write_atomically(&dir.join(META), text.as_bytes())
     }
 
-    fn unit_or_new(&self, place: &Place) -> UnitMeta {
-        self.unit_meta(&place.unit).unwrap_or_else(|| UnitMeta {
+    fn unit_or_new(&self, place: &Place) -> Result<UnitMeta, LibraryError> {
+        let path = self.unit_dir(&place.unit).join(META);
+        match fs::read(&path) {
+            Ok(bytes) => match serde_json::from_slice(&bytes) {
+                Ok(unit) => return Ok(unit),
+                Err(_) => {
+                    let aside = path.with_file_name(format!("{META}.corrupt"));
+                    fs::rename(&path, &aside).map_err(|e| io_error(&aside, e))?;
+                }
+            },
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_error(&path, e)),
+        }
+        Ok(UnitMeta {
             url: place.unit_url(),
             title: None,
             revision: None,
@@ -329,7 +341,7 @@ impl Library {
             }
             write_atomically(&target, bytes)?;
         }
-        let mut unit = self.unit_or_new(&place);
+        let mut unit = self.unit_or_new(&place)?;
         unit.files.insert(place.file.clone(), meta);
         self.write_unit(&place.unit, &unit)
     }
@@ -377,7 +389,7 @@ impl Library {
                 url: entry_url.to_owned(),
             });
         }
-        let mut unit = self.unit_or_new(&place);
+        let mut unit = self.unit_or_new(&place)?;
         if unit
             .revision
             .as_deref()
@@ -1010,6 +1022,16 @@ mod tests {
             "the file is still readable"
         );
         assert!(library.list_entries().is_empty());
+
+        library
+            .write(&format!("{HOST}/entries/x/"), b"<html/>", None, None)
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("entries/x/meta.json.corrupt")).unwrap(),
+            "{ not json",
+            "a write moves the unreadable record aside rather than lose it"
+        );
+        assert!(library.unit_meta("entries/x").is_some());
 
         let old = tempfile::tempdir().unwrap();
         fs::create_dir_all(old.path().join("pages")).unwrap();
