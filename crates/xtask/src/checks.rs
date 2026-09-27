@@ -10,6 +10,15 @@ struct Target {
     edition: Option<String>,
 }
 
+impl Target {
+    fn file(&self, kind: &str) -> String {
+        match &self.edition {
+            Some(edition) if edition != "live" => format!("{}-{edition}.{kind}", self.slug),
+            _ => format!("{}.{kind}", self.slug),
+        }
+    }
+}
+
 #[derive(Default)]
 struct Tally {
     order: Vec<String>,
@@ -179,7 +188,7 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
         if run.status.success() {
             rendered += 1;
             if !args.keep {
-                let _ = fs::remove_file(args.out.join(format!("{}.pdf", target.slug)));
+                let _ = fs::remove_file(args.out.join(target.file("pdf")));
             }
         } else {
             failures.push((target.slug.clone(), first_lines(&stderr, 2)));
@@ -273,7 +282,7 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
                 notes.add(&note);
             }
         }
-        let file = args.out.join(format!("{}.epub", target.slug));
+        let file = args.out.join(target.file("epub"));
         if !run.status.success() || !file.exists() {
             let first = first_lines(&stderr, 2);
             failures.push((
@@ -409,5 +418,21 @@ fn exit_code(ok: bool) -> std::process::ExitCode {
         std::process::ExitCode::SUCCESS
     } else {
         std::process::ExitCode::FAILURE
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_archived_edition_is_looked_for_under_its_own_name() {
+        let target = |edition: Option<&str>| Target {
+            slug: "kant".to_owned(),
+            edition: edition.map(str::to_owned),
+        };
+        assert_eq!(target(None).file("pdf"), "kant.pdf");
+        assert_eq!(target(Some("live")).file("pdf"), "kant.pdf");
+        assert_eq!(target(Some("sum2020")).file("epub"), "kant-sum2020.epub");
     }
 }
