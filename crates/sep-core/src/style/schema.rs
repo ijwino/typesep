@@ -81,10 +81,15 @@ pub fn match_ignoring_case<'a>(values: &[&'a str], input: &str) -> Option<&'a st
 }
 
 fn coerce_boolean(v: &Value) -> Result<Value, String> {
-    match v {
-        Value::Bool(b) => Ok(Value::Bool(*b)),
-        Value::String(s) if s == "true" || s == "yes" || s == "1" => Ok(Value::Bool(true)),
-        Value::String(s) if s == "false" || s == "no" || s == "0" => Ok(Value::Bool(false)),
+    let text = match v {
+        Value::Bool(b) => return Ok(Value::Bool(*b)),
+        Value::Number(n) => js::number_to_string(*n),
+        Value::String(s) => js::trim(s).to_lowercase(),
+        _ => String::new(),
+    };
+    match text.as_str() {
+        "true" | "yes" | "1" => Ok(Value::Bool(true)),
+        "false" | "no" | "0" => Ok(Value::Bool(false)),
         _ => Err("expected true or false".to_owned()),
     }
 }
@@ -689,8 +694,23 @@ mod tests {
         use KnobType::*;
         assert_eq!(Boolean.coerce(&s("yes")).unwrap(), Value::Bool(true));
         assert_eq!(Boolean.coerce(&s("0")).unwrap(), Value::Bool(false));
+        assert_eq!(Boolean.coerce(&s(" True ")).unwrap(), Value::Bool(true));
+        assert_eq!(Boolean.coerce(&s("NO")).unwrap(), Value::Bool(false));
         assert_eq!(
-            Boolean.coerce(&Value::Number(1.0)).unwrap_err(),
+            Boolean.coerce(&Value::Number(1.0)).unwrap(),
+            Value::Bool(true),
+            "YAML 1 means what -s x=1 means"
+        );
+        assert_eq!(
+            Boolean.coerce(&Value::Number(0.0)).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            Boolean.coerce(&Value::Number(2.0)).unwrap_err(),
+            "expected true or false"
+        );
+        assert_eq!(
+            Boolean.coerce(&Value::Null).unwrap_err(),
             "expected true or false"
         );
         assert_eq!(Number.coerce(&s(" 1.5 ")).unwrap(), Value::Number(1.5));
