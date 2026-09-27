@@ -760,6 +760,7 @@ struct Group<'a> {
 
 fn group_entries<'a>(docs: &'a [EntryDoc], merge: Option<&str>) -> Vec<Group<'a>> {
     match merge {
+        Some(_) if docs.is_empty() => Vec::new(),
         Some(name) => vec![Group {
             name: name.to_owned(),
             docs: docs.iter().collect(),
@@ -1585,6 +1586,11 @@ mod tests {
     #[test]
     fn the_command_line_is_well_formed() {
         command().debug_assert();
+    }
+
+    #[test]
+    fn a_merge_of_nothing_is_no_group() {
+        assert!(group_entries(&[], Some("vol")).is_empty());
     }
 
     fn style_with(sets: &[&str]) -> Style {
