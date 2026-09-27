@@ -310,7 +310,6 @@ pub fn resolve_style(opts: ResolveOptions<'_>) -> Result<Style, StyleError> {
         apply_layer(&mut style, layer, &|_| shown.clone())?;
     }
 
-    let mut overrides = Value::map();
     let mut origin: Vec<(String, String)> = Vec::new();
     for item in opts.sets {
         let Assignment {
@@ -321,26 +320,27 @@ pub fn resolve_style(opts: ResolveOptions<'_>) -> Result<Style, StyleError> {
             SetItem::Set(text) => parse_set(&text)?,
             SetItem::Assignment(a) => a,
         };
-        overrides.set_path(&path, value);
+        let mut layer = Value::map();
+        layer.set_path(&path, value);
         match origin.iter_mut().find(|(p, _)| *p == path) {
             Some(entry) => entry.1 = source,
             None => origin.push((path, source)),
         }
+        apply_layer(&mut style, &layer, &|knob_path| {
+            let mut seen = HashSet::new();
+            let sources: Vec<&str> = origin
+                .iter()
+                .filter(|(p, _)| p == knob_path || p.starts_with(&format!("{knob_path}.")))
+                .map(|(_, s)| s.as_str())
+                .filter(|s| seen.insert(*s))
+                .collect();
+            if sources.is_empty() {
+                "--set".to_owned()
+            } else {
+                sources.join(", ")
+            }
+        })?;
     }
-    apply_layer(&mut style, &overrides, &|knob_path| {
-        let mut seen = HashSet::new();
-        let sources: Vec<&str> = origin
-            .iter()
-            .filter(|(p, _)| p == knob_path || p.starts_with(&format!("{knob_path}.")))
-            .map(|(_, s)| s.as_str())
-            .filter(|s| seen.insert(*s))
-            .collect();
-        if sources.is_empty() {
-            "--set".to_owned()
-        } else {
-            sources.join(", ")
-        }
-    })?;
 
     Ok(Style { tree: style })
 }
@@ -699,6 +699,25 @@ mod tests {
         assert_eq!(
             replaced.get("fonts.main").unwrap().to_json(),
             r#"{"family":"EB Garamond"}"#
+        );
+        let then_scaled = resolve(
+            Some("halfletter"),
+            &["fonts.main=EB Garamond", "fonts.main.scale=0.9"],
+        )
+        .unwrap();
+        assert_eq!(
+            then_scaled.get("fonts.main").unwrap().to_json(),
+            r#"{"family":"EB Garamond","scale":0.9}"#,
+            "assignments apply in order, so the field edits the named font"
+        );
+        let then_replaced = resolve(
+            Some("halfletter"),
+            &["fonts.main.scale=0.9", "fonts.main=EB Garamond"],
+        )
+        .unwrap();
+        assert_eq!(
+            then_replaced, replaced,
+            "a later bare name replaces the font, scale and all"
         );
     }
 
