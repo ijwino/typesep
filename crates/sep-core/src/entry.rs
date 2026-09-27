@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use crate::fetch::{FetchError, FetchOptions, FetchResult, Fetcher};
 use crate::library::{FileMeta, HOST, Library, LibraryError, PlaceError};
 use crate::model::{AttachmentKind, Block, EntryDoc, Inline};
+use crate::parse::metadata::is_edition;
 use crate::parse::{
     AttachmentOptions, ParseOptions, extract_macros, parse_attachment, parse_entry,
 };
@@ -21,6 +22,8 @@ pub enum EntryError {
     NotEntryUrl(String),
     #[error("\"{0}\" does not look like an SEP entry slug or URL")]
     BadSlug(String),
+    #[error("\"{0}\" does not look like an SEP edition (live, or one such as sum2026)")]
+    BadEdition(String),
 }
 
 fn segment_after<'a>(path: &'a str, marker: &str) -> Option<&'a str> {
@@ -34,11 +37,18 @@ fn segment_after<'a>(path: &'a str, marker: &str) -> Option<&'a str> {
 pub fn normalize_entry(input: &str, edition: &str) -> Result<EntryTarget, EntryError> {
     let mut slug = input.trim().to_owned();
     let mut edition = edition.to_owned();
+    if edition != "live" && !is_edition(&edition) {
+        return Err(EntryError::BadEdition(edition));
+    }
 
     let lower = slug.to_ascii_lowercase();
     if lower.starts_with("http://") || lower.starts_with("https://") {
         let parsed =
             url::Url::parse(&slug).map_err(|_| EntryError::NotEntryUrl(input.to_owned()))?;
+        let sep_host = HOST.split_once("://").map_or(HOST, |(_, host)| host);
+        if parsed.host_str() != Some(sep_host) || parsed.port().is_some() {
+            return Err(EntryError::NotEntryUrl(input.to_owned()));
+        }
         let path = parsed.path();
         let found = segment_after(path, "/entries/")
             .ok_or_else(|| EntryError::NotEntryUrl(input.to_owned()))?;
@@ -47,6 +57,9 @@ pub fn normalize_entry(input: &str, edition: &str) -> Result<EntryTarget, EntryE
         if let Some(archived) = archived
             && edition == "live"
         {
+            if !is_edition(archived) {
+                return Err(EntryError::NotEntryUrl(input.to_owned()));
+            }
             edition = archived.to_owned();
         }
         slug = found.to_owned();
@@ -552,6 +565,25 @@ mod tests {
             normalize_entry("", "live"),
             Err(EntryError::BadSlug("".into()))
         );
+        assert_eq!(
+            normalize_entry("turing-machine", "sum2026/../../entries/other"),
+            Err(EntryError::BadEdition("sum2026/../../entries/other".into()))
+        );
+        assert_eq!(
+            normalize_entry("turing-machine", "summer"),
+            Err(EntryError::BadEdition("summer".into()))
+        );
+        for other in [
+            "https://example.com/entries/turing-machine/",
+            "https://plato.stanford.edu.example.com/entries/turing-machine/",
+            "https://plato.stanford.edu:8443/entries/turing-machine/",
+            "https://plato.stanford.edu/archives/x/entries/turing-machine/",
+        ] {
+            assert_eq!(
+                normalize_entry(other, "live"),
+                Err(EntryError::NotEntryUrl(other.into()))
+            );
+        }
     }
 
     const TM: &str = "https://plato.stanford.edu/entries/turing-machine/";

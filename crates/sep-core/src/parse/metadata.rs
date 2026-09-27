@@ -112,6 +112,10 @@ fn format_authors(authors: &[String]) -> String {
     }
 }
 
+pub(crate) fn is_edition(text: &str) -> bool {
+    EDITION.is_match(text)
+}
+
 pub fn edition_label(edition: &str) -> String {
     let Some(m) = EDITION.captures(edition) else {
         return String::new();
