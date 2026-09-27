@@ -159,6 +159,7 @@ fn markup_in_text_stays_text() {
         "7.\u{a0}seven",
         "a *b* _c_ #d $e$ `f` <g> @h [i] ~j",
         "C:\\dir and back\\",
+        "soft -? hyphen",
         "see https://x.test/a//b /* not a comment */",
     ]));
 }
@@ -198,6 +199,8 @@ fn markup_in_code_stays_text() {
             code("\"q\" it's"),
         ])],
         vec![para(vec![code("x // y /* z */")])],
+        vec![para(vec![code("a... b -? c -1 d ~ e -- f --- g")])],
+        vec![pre("a... b -? c -1 d ~ e -- f")],
         vec![pre("fn main() {\n    let a = [1, 2]; // #x\n}")],
         vec![pre("- first line")],
         vec![pre("= first line")],

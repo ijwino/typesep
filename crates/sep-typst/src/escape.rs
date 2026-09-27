@@ -19,6 +19,7 @@ pub fn escape_text(text: &str) -> String {
                 out.push(c);
             }
             '/' if matches!(chars.peek(), Some('/') | Some('*')) => out.push_str("\\/"),
+            '-' if chars.peek() == Some(&'?') => out.push_str("\\-"),
             '\u{200b}' | '\u{2060}' => {}
             _ => out.push(c),
         }
@@ -31,12 +32,12 @@ pub fn escape_code(text: &str) -> String {
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
-            '\\' | '*' | '_' | '`' | '#' | '$' | '<' | '>' | '@' | '~' | '[' | ']' | '\'' | '"' => {
+            '\\' | '*' | '_' | '`' | '#' | '$' | '<' | '>' | '@' | '~' | '[' | ']' | '\'' | '"'
+            | '-' | '.' => {
                 out.push('\\');
                 out.push(c);
             }
             '/' if matches!(chars.peek(), Some('/') | Some('*')) => out.push_str("\\/"),
-            '-' if matches!(chars.peek(), Some('-')) => out.push_str("\\-"),
             '\n' => out.push_str("\\\n"),
             _ => out.push(c),
         }
@@ -148,11 +149,15 @@ mod tests {
             "don't \"quote\" -- dash"
         );
         assert_eq!(escape_text("C:\\dir"), "C:\\\\dir");
+        assert_eq!(escape_text("soft -? no"), "soft \\-? no");
     }
 
     #[test]
-    fn code_keeps_quotes_and_lines_literal() {
-        assert_eq!(escape_code("it's \"x\" --y"), "it\\'s \\\"x\\\" \\--y");
+    fn code_keeps_quotes_lines_and_shorthands_literal() {
+        assert_eq!(
+            escape_code("it's \"x\" --y..."),
+            "it\\'s \\\"x\\\" \\-\\-y\\.\\.\\."
+        );
         assert_eq!(escape_code("a\nb"), "a\\\nb");
     }
 
