@@ -758,6 +758,14 @@ struct Group<'a> {
     volume_title: Option<String>,
 }
 
+fn entry_name(doc: &EntryDoc) -> String {
+    if doc.meta.edition.is_empty() {
+        doc.meta.slug.clone()
+    } else {
+        format!("{}-{}", doc.meta.slug, doc.meta.edition)
+    }
+}
+
 fn group_entries<'a>(docs: &'a [EntryDoc], merge: Option<&str>) -> Vec<Group<'a>> {
     match merge {
         Some(_) if docs.is_empty() => Vec::new(),
@@ -769,7 +777,7 @@ fn group_entries<'a>(docs: &'a [EntryDoc], merge: Option<&str>) -> Vec<Group<'a>
         None => docs
             .iter()
             .map(|doc| Group {
-                name: doc.meta.slug.clone(),
+                name: entry_name(doc),
                 docs: vec![doc],
                 volume_title: None,
             })
@@ -814,9 +822,14 @@ fn walk_entries(
                 continue;
             }
         };
-        if !seen.insert(target.slug.clone()) {
+        if !seen.insert(target.url.clone()) {
             continue;
         }
+        let name = if target.edition == "live" {
+            target.slug.clone()
+        } else {
+            format!("{} ({})", target.slug, target.edition)
+        };
 
         attempted += 1;
         let total = attempted + queue.len();
@@ -832,7 +845,7 @@ fn walk_entries(
         };
         if !quiet {
             let verb = opts.verb.word(source, &target);
-            eprintln!("{counter}{verb} {}{deeper}", target.slug);
+            eprintln!("{counter}{verb} {name}{deeper}");
         }
 
         let mut log = |message: &str| {
@@ -853,9 +866,9 @@ fn walk_entries(
                 if !batch {
                     return Err(user_error(err));
                 }
-                failures.push((target.slug.clone(), err.to_string()));
+                failures.push((name.clone(), err.to_string()));
                 if !quiet {
-                    eprintln!("  {} failed, continuing", target.slug);
+                    eprintln!("  {name} failed, continuing");
                 }
                 continue;
             }
@@ -884,9 +897,9 @@ fn walk_entries(
                 if !batch {
                     return Err(user_error(message));
                 }
-                failures.push((target.slug.clone(), message));
+                failures.push((name.clone(), message));
                 if !quiet {
-                    eprintln!("  {} failed, continuing", target.slug);
+                    eprintln!("  {name} failed, continuing");
                 }
             }
         }
@@ -1074,7 +1087,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
             &mut failures,
             &mut |loaded| {
                 let group = Group {
-                    name: loaded.doc.meta.slug.clone(),
+                    name: entry_name(&loaded.doc),
                     docs: vec![&loaded.doc],
                     volume_title: None,
                 };
@@ -1848,5 +1861,47 @@ mod tests {
         );
         assert_eq!(walked.ok(), Some(0));
         assert_eq!(failures.len(), 2);
+    }
+
+    #[test]
+    fn each_edition_of_an_entry_is_walked_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::new(dir.path());
+        library.init().unwrap();
+        let mut source = Source::offline(&library);
+        let sections = BTreeSet::new();
+        let walk = WalkOptions {
+            verb: Verb::Reading,
+            sections: &sections,
+            images: false,
+            quiet: true,
+        };
+        let mut failures = Vec::new();
+        let entries = [
+            "kant".to_owned(),
+            "https://plato.stanford.edu/archives/sum2020/entries/kant/".to_owned(),
+            "https://plato.stanford.edu/entries/kant/".to_owned(),
+        ];
+        let walked = walk_entries(
+            &mut source,
+            &entries,
+            "live",
+            0,
+            &walk,
+            &mut failures,
+            &mut |_| Ok(()),
+        );
+        assert_eq!(walked.ok(), Some(0));
+        let names: Vec<&str> = failures.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["kant", "kant (sum2020)"]);
+    }
+
+    #[test]
+    fn archived_editions_get_their_own_file_name() {
+        let mut doc = EntryDoc::default();
+        doc.meta.slug = "kant".into();
+        assert_eq!(entry_name(&doc), "kant");
+        doc.meta.edition = "sum2020".into();
+        assert_eq!(entry_name(&doc), "kant-sum2020");
     }
 }
