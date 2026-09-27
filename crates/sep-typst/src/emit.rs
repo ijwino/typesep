@@ -515,7 +515,11 @@ fn list_block(list: &List, ctx: &mut Ctx<'_>) -> Option<String> {
         args.push(format!("numbering: \"{}\"", numbering_pattern(numbering)));
     }
     if let Some(start) = list.start {
-        args.push(format!("start: {start}"));
+        let least = match list.numbering {
+            None | Some(ListNumbering::Decimal) => 0,
+            Some(_) => 1,
+        };
+        args.push(format!("start: {}", start.max(least)));
     }
     args.extend(items);
     Some(format!("#enum({})", args.join(", ")))

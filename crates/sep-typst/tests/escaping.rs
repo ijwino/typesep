@@ -1,4 +1,4 @@
-use sep_core::model::{Block, EntryDoc, EntryMeta, Inline};
+use sep_core::model::{Block, EntryDoc, EntryMeta, Inline, List, ListNumbering};
 use sep_core::style::{ResolveOptions, resolve_style};
 use sep_typst::{EmitOptions, Fonts, SepWorld, emit_document};
 use typst::layout::{Frame, FrameItem};
@@ -226,4 +226,28 @@ fn a_call_is_not_continued_by_the_text_after_it() {
             text(".field"),
         ])],
     ]);
+}
+
+#[test]
+fn an_ordered_list_may_start_below_one() {
+    for (start, numbering) in [
+        (-3, None),
+        (0, Some(ListNumbering::Decimal)),
+        (-1, Some(ListNumbering::LowerAlpha)),
+        (0, Some(ListNumbering::UpperRoman)),
+    ] {
+        let list = Block::List(List {
+            ordered: true,
+            hanging: false,
+            items: vec![vec![para(vec![text("first")])]],
+            numbering,
+            start: Some(start),
+            labels: None,
+        });
+        assert_eq!(
+            typeset(&[list]).map(|t| squeeze(&t)),
+            Ok("<enum>".to_owned()),
+            "start {start}, {numbering:?}"
+        );
+    }
 }
