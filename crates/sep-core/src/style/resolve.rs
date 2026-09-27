@@ -96,12 +96,21 @@ fn flatten(obj: &Value, prefix: &str, out: &mut Vec<(String, Value)>) {
         } else {
             format!("{prefix}.{key}")
         };
-        if knob(&p).is_some() || !value.is_tree() {
+        if knob(&p).is_some() {
+            out.push((p, value.clone()));
+        } else if *value == Value::Null && is_group(&p) {
+            continue;
+        } else if !value.is_tree() {
             out.push((p, value.clone()));
         } else {
             flatten(value, &p, out);
         }
     }
+}
+
+fn is_group(p: &str) -> bool {
+    let prefix = format!("{p}.");
+    knobs().iter().any(|k| k.path.starts_with(&prefix))
 }
 
 fn distance(a: &[u16], b: &[u16]) -> usize {
@@ -653,6 +662,19 @@ mod tests {
                 style,
                 resolve(Some("none"), &[]).unwrap(),
                 "an empty file is an empty layer"
+            );
+        });
+        with_style_file("typography:\n#  leading: 2\npage:\n  margins:\n", |file| {
+            let style = resolve_style(ResolveOptions {
+                preset: Some("none"),
+                file: Some(file),
+                sets: vec![],
+            })
+            .unwrap();
+            assert_eq!(
+                style,
+                resolve(Some("none"), &[]).unwrap(),
+                "a group with nothing under it is empty"
             );
         });
         with_style_file("page.size: a4\npage: {size: a3}\n", |file| {
