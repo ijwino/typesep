@@ -71,6 +71,11 @@ fn the_style_surface_answers_as_it_was_frozen() {
     )
     .expect("write the config file");
     fs::write(tmp.join("bad.yaml"), "preset: [1]\n").expect("write bad.yaml");
+    fs::write(
+        tmp.join("braces.yaml"),
+        "pageFurniture: {footer: {center: {page}}}\n",
+    )
+    .expect("write braces.yaml");
 
     let elsewhere = tempfile::tempdir().expect("a second temporary directory");
 
@@ -132,7 +137,7 @@ fn the_style_surface_answers_as_it_was_frozen() {
         }
     }
 
-    assert_eq!(files.len(), 26, "a style snapshot has gone missing");
+    assert_eq!(files.len(), 27, "a style snapshot has gone missing");
     assert!(
         failures.is_empty(),
         "the style surface has moved under its snapshots:\n{}",

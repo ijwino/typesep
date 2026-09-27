@@ -198,15 +198,41 @@ fn merge_font(current: Option<&Value>, raw: &Value) -> Value {
     Value::Map(merged)
 }
 
-fn coerce_string_list(v: &Value) -> Vec<String> {
+fn scalar(v: &Value) -> Result<(), String> {
     match v {
-        Value::List(items) => items.iter().map(Value::js_string).collect(),
-        other => other
+        Value::Map(_) => Err("expected a single value, not a mapping".to_owned()),
+        Value::List(_) => Err("expected a single value, not a list".to_owned()),
+        _ => Ok(()),
+    }
+}
+
+fn coerce_text(v: &Value) -> Result<String, String> {
+    match v {
+        Value::Null => Ok(String::new()),
+        Value::Map(_) => Err(
+            "expected text, not a mapping (quote text that starts with a brace, e.g. '{page}')"
+                .to_owned(),
+        ),
+        Value::List(_) => Err("expected text, not a list".to_owned()),
+        other => Ok(other.js_string()),
+    }
+}
+
+fn coerce_string_list(v: &Value) -> Result<Vec<String>, String> {
+    match v {
+        Value::Null => Ok(Vec::new()),
+        Value::List(items) => items
+            .iter()
+            .filter(|item| **item != Value::Null)
+            .map(coerce_text)
+            .collect(),
+        Value::Map(_) => Err("expected a list, not a mapping".to_owned()),
+        other => Ok(other
             .js_string()
             .split(',')
             .map(|s| js::trim(s).to_owned())
             .filter(|s| !s.is_empty())
-            .collect(),
+            .collect()),
     }
 }
 
@@ -262,27 +288,33 @@ impl KnobType {
     }
 
     pub fn coerce(&self, v: &Value) -> Result<Value, String> {
+        if !matches!(
+            self,
+            KnobType::Font
+                | KnobType::StringList
+                | KnobType::EnumList(_)
+                | KnobType::String
+                | KnobType::Template
+        ) {
+            scalar(v)?;
+        }
         match self {
             KnobType::Boolean => coerce_boolean(v),
             KnobType::Number => coerce_number(v).map(Value::Number),
             KnobType::Integer => coerce_integer(v).map(Value::Number),
-            KnobType::String => Ok(Value::String(v.js_string())),
+            KnobType::String | KnobType::Template => coerce_text(v).map(Value::String),
             KnobType::Length => coerce_length(v).map(Value::String),
             KnobType::FactorOrLength => coerce_factor_or_length(v),
             KnobType::PaperSize => coerce_paper_size(v).map(Value::String),
             KnobType::Color => coerce_color(v).map(Value::String),
             KnobType::Font => coerce_font(v),
-            KnobType::StringList => Ok(string_list(coerce_string_list(v))),
-            KnobType::Template => Ok(Value::String(match v {
-                Value::Null => String::new(),
-                other => other.js_string(),
-            })),
+            KnobType::StringList => coerce_string_list(v).map(string_list),
             KnobType::Enum(values) => match match_ignoring_case(values, &v.js_string()) {
                 Some(hit) => Ok(Value::str(hit)),
                 None => Err(format!("expected one of: {}", values.join(", "))),
             },
             KnobType::EnumList(values) => {
-                let items = coerce_string_list(v);
+                let items = coerce_string_list(v)?;
                 for item in &items {
                     if !values.contains(&item.as_str()) {
                         return Err(format!("\"{item}\" is not one of: {}", values.join(", ")));
@@ -640,10 +672,42 @@ mod tests {
             StringList
                 .coerce(&Value::List(vec![Value::Number(1.0), Value::Null]))
                 .unwrap(),
-            Value::List(vec![s("1"), s("null")])
+            Value::List(vec![s("1")]),
+            "a null item is dropped"
+        );
+        assert_eq!(
+            StringList.coerce(&Value::Null).unwrap(),
+            Value::List(vec![])
+        );
+        assert_eq!(
+            StringList.coerce(&Value::map()).unwrap_err(),
+            "expected a list, not a mapping"
+        );
+        assert_eq!(
+            StringList
+                .coerce(&Value::List(vec![Value::List(vec![])]))
+                .unwrap_err(),
+            "expected text, not a list"
         );
         assert_eq!(Template.coerce(&Value::Null).unwrap(), s(""));
-        assert_eq!(String.coerce(&Value::Null).unwrap(), s("null"));
+        assert_eq!(String.coerce(&Value::Null).unwrap(), s(""));
+        let token = super::super::yaml::parse("{page}").unwrap();
+        assert_eq!(
+            Template.coerce(&token).unwrap_err(),
+            "expected text, not a mapping (quote text that starts with a brace, e.g. '{page}')"
+        );
+        assert_eq!(
+            String.coerce(&Value::List(vec![s("a")])).unwrap_err(),
+            "expected text, not a list"
+        );
+        assert_eq!(
+            PaperSize.coerce(&Value::List(vec![s("a4")])).unwrap_err(),
+            "expected a single value, not a list"
+        );
+        assert_eq!(
+            Number.coerce(&Value::map()).unwrap_err(),
+            "expected a single value, not a mapping"
+        );
         assert_eq!(String.coerce(&Value::Number(1.5)).unwrap(), s("1.5"));
         let notes = knob("notes.style").unwrap();
         assert_eq!(notes.kind.coerce(&s("ENDNOTE")).unwrap(), s("endnote"));
