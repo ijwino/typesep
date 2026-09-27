@@ -186,6 +186,9 @@ fn markup_in_code_stays_text() {
 fn a_call_is_not_continued_by_the_text_after_it() {
     assert_literal(vec![
         vec![para(vec![code("f"), text("(x) and [y]")])],
+        vec![para(vec![code("\\"), text("(set difference)")])],
+        vec![para(vec![code("a\\\\"), text("[b]")])],
+        vec![para(vec![text("escaped \\"), text("(c)")])],
         vec![para(vec![
             Inline::Emph {
                 children: vec![text("e")],

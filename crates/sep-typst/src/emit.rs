@@ -692,11 +692,9 @@ fn figure_block(figure: &Figure, ctx: &mut Ctx<'_>) -> Option<String> {
 }
 
 fn guard_after_call(before: &str, piece: &str) -> String {
-    let ends_call = match before.chars().rev().take(2).collect::<Vec<_>>()[..] {
-        [']' | ')', '\\'] => false,
-        [']' | ')'] | [']' | ')', _] => true,
-        _ => false,
-    };
+    let ends_call = before
+        .strip_suffix([']', ')'])
+        .is_some_and(|rest| rest.chars().rev().take_while(|&c| c == '\\').count() % 2 == 0);
     if !ends_call {
         return piece.to_owned();
     }
