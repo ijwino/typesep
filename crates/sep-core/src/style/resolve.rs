@@ -192,7 +192,13 @@ fn apply_layer(
 fn read_structured(file: &Path, shown: &str) -> Result<Value, StyleError> {
     let text = std::fs::read_to_string(file)
         .map_err(|e| StyleError(format!("cannot read style file {shown}: {e}")))?;
-    parse_structured(&text).map_err(|e| StyleError(format!("{shown}: {e}")))
+    let tree = parse_structured(&text).map_err(|e| StyleError(format!("{shown}: {e}")))?;
+    if !tree.is_tree() {
+        return Err(StyleError(format!(
+            "{shown}: a style file is a mapping of options, like \"page: {{size: a4}}\""
+        )));
+    }
+    Ok(tree)
 }
 
 fn split_preset(tree: Value, file: &str) -> Result<(Option<String>, Value), StyleError> {
@@ -652,6 +658,22 @@ mod tests {
                 .is_err()
             );
         });
+        for text in ["- page.size: a4\n", "page.size=a4\n", "[]"] {
+            with_style_file(text, |file| {
+                let err = resolve_style(ResolveOptions {
+                    preset: None,
+                    file: Some(file),
+                    sets: vec![],
+                })
+                .unwrap_err();
+                assert!(
+                    err.0.ends_with(
+                        ": a style file is a mapping of options, like \"page: {size: a4}\""
+                    ),
+                    "{text:?}: {err}"
+                );
+            });
+        }
         let err = resolve_style(ResolveOptions {
             preset: None,
             file: Some(Path::new("/nonexistent/style.yaml")),
