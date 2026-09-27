@@ -264,6 +264,7 @@ impl Fetcher {
                 .retry_after
                 .as_deref()
                 .and_then(retry_after)
+                .map(|wait| wait.min(Duration::from_millis(MAX_BACKOFF_MS)))
                 .unwrap_or_else(|| self.backoff(attempt));
             self.say(
                 Loudness::Notice,
@@ -405,6 +406,22 @@ mod tests {
             *h.slept.borrow(),
             vec![Duration::from_secs(3)],
             "Retry-After is honoured over the backoff"
+        );
+    }
+
+    #[test]
+    fn a_long_retry_after_waits_no_more_than_a_minute() {
+        let mut h = harness(vec![
+            Ok(RawResponse {
+                retry_after: Some("86400".into()),
+                ..status(503, "Service Unavailable")
+            }),
+            Ok(ok("at last")),
+        ]);
+        h.fetcher.get(URL, FetchOptions::default()).unwrap();
+        assert_eq!(
+            *h.slept.borrow(),
+            vec![Duration::from_millis(MAX_BACKOFF_MS)]
         );
     }
 
