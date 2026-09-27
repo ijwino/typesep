@@ -164,6 +164,32 @@ fn markup_in_text_stays_text() {
 }
 
 #[test]
+fn a_comment_is_not_opened_across_text_nodes() {
+    assert_literal(vec![
+        vec![para(vec![text("see a /"), text("/ b and the rest")])],
+        vec![para(vec![
+            Inline::Emph {
+                children: vec![text("x /"), text("/ y")],
+            },
+            text(" after"),
+        ])],
+        vec![para(vec![
+            Inline::Anchor { id: "x".into() },
+            text("a /"),
+            Inline::Anchor { id: "x".into() },
+            text("/ b"),
+        ])],
+        vec![para(vec![code("p /"), text("/ q")])],
+        vec![para(vec![
+            Inline::Code {
+                children: vec![text("r /"), text("/ s")],
+            },
+            text(" t"),
+        ])],
+    ]);
+}
+
+#[test]
 fn markup_in_code_stays_text() {
     assert_literal(vec![
         vec![para(vec![

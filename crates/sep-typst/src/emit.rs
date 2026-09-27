@@ -691,11 +691,13 @@ fn figure_block(figure: &Figure, ctx: &mut Ctx<'_>) -> Option<String> {
     figure_markup(figure, ctx)
 }
 
+fn ends_unescaped(text: &str, marks: &[char]) -> bool {
+    text.strip_suffix(marks)
+        .is_some_and(|rest| rest.chars().rev().take_while(|&c| c == '\\').count() % 2 == 0)
+}
+
 fn guard_after_call(before: &str, piece: &str) -> String {
-    let ends_call = before
-        .strip_suffix([']', ')'])
-        .is_some_and(|rest| rest.chars().rev().take_while(|&c| c == '\\').count() % 2 == 0);
-    if !ends_call {
+    if !ends_unescaped(before, &[']', ')']) {
         return piece.to_owned();
     }
     let mut chars = piece.chars();
@@ -716,8 +718,10 @@ fn guard_after_call(before: &str, piece: &str) -> String {
 fn join_inline(pieces: impl Iterator<Item = String>) -> String {
     let mut out = String::new();
     for piece in pieces {
-        let guarded = guard_after_call(&out, &piece);
-        out.push_str(&guarded);
+        if piece.starts_with(['/', '*']) && ends_unescaped(&out, &['/']) {
+            out.push('\\');
+        }
+        out.push_str(&guard_after_call(&out, &piece));
     }
     out
 }
