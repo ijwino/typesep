@@ -1,0 +1,14 @@
+name: error: unknown font field
+arg: "style"
+arg: "-s"
+arg: "fonts.main.famly=EB Garamond"
+cwd: root
+exit: 1
+--- stdout ---
+
+--- stderr ---
+typesep: invalid value for "fonts.main" (--set): unknown font field "famly" (did you mean "family"?)
+  a family name, or {family, scale, features, file}
+  default: {"family":"TeX Gyre Termes","features":{"Ligatures":"TeX"}}
+
+--- end ---

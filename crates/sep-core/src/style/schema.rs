@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+use super::resolve::nearest;
 use super::units::{LENGTH_UNITS, PAPER_SIZES, match_length, paper_size};
 use super::value::{Map, Value};
 use crate::parse::js::{self, lazy_regex};
@@ -197,11 +198,22 @@ fn truthy(map: &Map, key: &str) -> bool {
     map.get(key).is_some_and(Value::truthy)
 }
 
+const FONT_FIELDS: [&str; 4] = ["family", "scale", "features", "file"];
+
 fn coerce_font(v: &Value) -> Result<Value, String> {
     let mut spec = Map::new();
     match v {
         Value::String(family) => spec.insert("family", Value::str(family)),
         other => spread_into(&mut spec, other),
+    }
+    if let Some((key, _)) = spec.iter().find(|(key, _)| !FONT_FIELDS.contains(key)) {
+        return Err(match nearest(key, &FONT_FIELDS, 1).first() {
+            Some(near) => format!("unknown font field \"{key}\" (did you mean \"{near}\"?)"),
+            None => format!(
+                "unknown font field \"{key}\" (fields: {})",
+                FONT_FIELDS.join(", ")
+            ),
+        });
     }
     if !truthy(&spec, "family") && !truthy(&spec, "file") {
         return Err("a font needs a family or a file".to_owned());
@@ -908,9 +920,15 @@ mod tests {
         );
         let extra = super::super::yaml::parse("{family: X, weight: bold}").unwrap();
         assert_eq!(
-            main.kind.coerce(&extra).unwrap().to_json(),
-            r#"{"family":"X","weight":"bold"}"#,
-            "unknown fields are kept"
+            main.kind.coerce(&extra).unwrap_err(),
+            "unknown font field \"weight\" (fields: family, scale, features, file)"
+        );
+        let typo = super::super::yaml::parse("famly: EB Garamond").unwrap();
+        assert_eq!(
+            main.kind
+                .coerce(&main.kind.merge(Some(current), &typo))
+                .unwrap_err(),
+            "unknown font field \"famly\" (did you mean \"family\"?)"
         );
     }
 
