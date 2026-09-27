@@ -38,8 +38,21 @@ pub fn extract_macros(js: &str) -> MacroTable {
     let from = start.end() - 1;
     let mut depth = 0usize;
     let mut end = None;
+    let mut quote = None;
+    let mut escaped = false;
     for (i, byte) in js.bytes().enumerate().skip(from) {
+        if let Some(open) = quote {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == open {
+                quote = None;
+            }
+            continue;
+        }
         match byte {
+            b'"' | b'\'' | b'`' => quote = Some(byte),
             b'{' => depth += 1,
             b'}' => {
                 depth = depth.saturating_sub(1);
@@ -123,6 +136,16 @@ mod tests {
                 ("q".to_owned(), def("it's \"quoted\"", 0)),
             ]),
             "a one-element array is a macro of no arguments and does not swallow the next entry"
+        );
+        let unbalanced = r#"Macros: { rb: "\\right\\}", lb: '\\left\\{', opL: "\\mathbin{L}" }"#;
+        assert_eq!(
+            extract_macros(unbalanced),
+            MacroTable::from([
+                ("rb".to_owned(), def("\\right\\}", 0)),
+                ("lb".to_owned(), def("\\left\\{", 0)),
+                ("opL".to_owned(), def("\\mathbin{L}", 0)),
+            ]),
+            "a brace inside a string does not open or close the block"
         );
         assert!(extract_macros("var x = 1;").is_empty(), "no macros block");
         assert!(
