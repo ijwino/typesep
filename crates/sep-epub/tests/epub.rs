@@ -8,6 +8,8 @@ use sep_core::sections::{ALL_CONTENT_KEYS, ContentKey};
 use sep_core::style::{ResolveOptions, Style, resolve_style};
 use sep_epub::nav::nav_items;
 use sep_epub::xhtml::{Ctx, MathPass, entry_html, xml_id};
+use sep_epub::{EpubError, EpubOptions, build_epub};
+use sep_typst::fonts::Fonts;
 use sep_typst::style::View;
 
 fn style() -> Style {
@@ -245,4 +247,23 @@ fn a_contents_entry_with_no_target_is_a_span_or_is_left_out() {
         "{nav}"
     );
     assert!(!nav.contains("3. Alone"), "{nav}");
+}
+
+#[test]
+fn an_epub_of_no_entry_is_an_error() {
+    let style = style();
+    let images = BTreeMap::new();
+    let sections: BTreeSet<ContentKey> = ALL_CONTENT_KEYS.into_iter().collect();
+    let fonts = Fonts::embedded();
+    let built = build_epub(
+        &[],
+        &style,
+        EpubOptions {
+            sections: &sections,
+            images: &images,
+            volume_title: Some("vol"),
+            fonts: &fonts,
+        },
+    );
+    assert!(matches!(built, Err(EpubError::Empty)));
 }

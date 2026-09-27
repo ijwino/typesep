@@ -20,6 +20,7 @@ use crate::xhtml::{Ctx, MathPass, document_xhtml, entry_html};
 pub enum EpubError {
     Asset { file: String, reason: String },
     Container(String),
+    Empty,
 }
 
 impl std::fmt::Display for EpubError {
@@ -27,6 +28,7 @@ impl std::fmt::Display for EpubError {
         match self {
             EpubError::Asset { file, reason } => write!(f, "cannot read {file}: {reason}"),
             EpubError::Container(reason) => write!(f, "cannot write the EPUB: {reason}"),
+            EpubError::Empty => write!(f, "cannot write an EPUB with no entry in it"),
         }
     }
 }
@@ -50,6 +52,9 @@ pub fn build_epub(
     style: &sep_core::style::Style,
     options: EpubOptions,
 ) -> Result<Epub, EpubError> {
+    if docs.is_empty() {
+        return Err(EpubError::Empty);
+    }
     let view = View::new(style);
     let mut warnings = Vec::new();
 
