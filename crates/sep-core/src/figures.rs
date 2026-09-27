@@ -128,6 +128,9 @@ pub fn fetch_figures(
             continue;
         }
         let Some(fetcher) = source.fetcher.as_deref_mut() else {
+            let reason = format!("{url} is not in the library");
+            log(&format!("skipping image {url}: {reason}"));
+            result.failed.push((url, reason));
             continue;
         };
         match fetcher.get(&url, FetchOptions::default()) {
@@ -188,5 +191,33 @@ mod tests {
             align: None,
         });
         assert_eq!(figure_urls(&doc), vec!["a.png", "b.svg"]);
+    }
+
+    #[test]
+    fn without_a_fetcher_every_figure_is_counted_somewhere() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = crate::library::Library::new(temp.path());
+        library.init().unwrap();
+        let tm = "https://plato.stanford.edu/entries/turing-machine/";
+        let (held, gone, absent) = (
+            format!("{tm}held.png"),
+            format!("{tm}gone.png"),
+            format!("{tm}absent.png"),
+        );
+        library.write(&held, b"\x89PNG", None, None).unwrap();
+        library.mark_missing(&gone).unwrap();
+        let mut doc = EntryDoc::default();
+        for src in [&held, &gone, &absent] {
+            doc.body.push(Block::Figure(figure(src)));
+        }
+
+        let pass = fetch_figures(&doc, &mut Source::offline(&library), &mut |_| {});
+        assert_eq!(pass.present, [held]);
+        assert_eq!(pass.missing, [gone]);
+        assert_eq!(
+            pass.failed,
+            [(absent.clone(), format!("{absent} is not in the library"))]
+        );
+        assert_eq!(pass.fetched, 0);
     }
 }
