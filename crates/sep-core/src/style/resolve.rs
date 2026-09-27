@@ -171,6 +171,13 @@ fn apply_layer(
 ) -> Result<(), StyleError> {
     let mut leaves = Vec::new();
     flatten(layer, "", &mut leaves);
+    let mut seen = HashSet::new();
+    if let Some((p, _)) = leaves.iter().find(|(p, _)| !seen.insert(p.as_str())) {
+        return Err(StyleError(format!(
+            "style option \"{p}\" is set twice ({})",
+            label(p)
+        )));
+    }
     for (p, raw) in leaves {
         let knob = knob(&p).ok_or_else(|| unknown_option("unknown", &p, Some(&label(&p))))?;
         let value = knob.kind.merge(style.get_path(&p), &raw);
@@ -646,6 +653,19 @@ mod tests {
                 style,
                 resolve(Some("none"), &[]).unwrap(),
                 "an empty file is an empty layer"
+            );
+        });
+        with_style_file("page.size: a4\npage: {size: a3}\n", |file| {
+            let err = resolve_style(ResolveOptions {
+                preset: None,
+                file: Some(file),
+                sets: vec![],
+            })
+            .unwrap_err();
+            assert!(
+                err.0
+                    .starts_with("style option \"page.size\" is set twice ("),
+                "{err}"
             );
         });
         with_style_file("page: {size: a4, size: a5}\n", |file| {
