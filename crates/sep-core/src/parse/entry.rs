@@ -732,13 +732,17 @@ fn definition_items(ctx: &mut Ctx, dl: ElementRef) -> Vec<Vec<Block>> {
     items
 }
 
-fn span_of(attr: Option<&str>) -> u32 {
+// The limits browsers clamp spans to.
+const MAX_COLSPAN: u32 = 1000;
+const MAX_ROWSPAN: u32 = 65534;
+
+fn span_of(attr: Option<&str>, max: u32) -> u32 {
     let n = match attr {
         None => 1.0,
         Some(value) => js::number(value).unwrap_or(f64::NAN),
     };
     let n = if n.is_nan() || n == 0.0 { 1.0 } else { n };
-    n.max(1.0) as u32
+    (n.max(1.0) as u32).min(max)
 }
 
 fn parse_table(ctx: &mut Ctx, table: ElementRef) -> Option<Table> {
@@ -752,8 +756,8 @@ fn parse_table(ctx: &mut Ctx, table: ElementRef) -> Option<Table> {
         for cell in dom::children_named(*tr, &["td", "th"]) {
             cells.push(TableCell {
                 header: dom::is(&cell, "th"),
-                colspan: span_of(cell.attr("colspan")),
-                rowspan: span_of(cell.attr("rowspan")),
+                colspan: span_of(cell.attr("colspan"), MAX_COLSPAN),
+                rowspan: span_of(cell.attr("rowspan"), MAX_ROWSPAN),
                 children: inline(ctx, *cell),
             });
         }
@@ -766,7 +770,10 @@ fn parse_table(ctx: &mut Ctx, table: ElementRef) -> Option<Table> {
     }
     let columns = rows
         .iter()
-        .map(|row| row.iter().map(|c| c.colspan).sum::<u32>())
+        .map(|row| {
+            row.iter()
+                .fold(0u32, |sum, c| sum.saturating_add(c.colspan))
+        })
         .max()
         .unwrap_or(0);
     let caption = dom::children_named(*table, &["caption"])
@@ -1360,11 +1367,14 @@ mod tests {
                  { "header": false, "colspan": 1, "rowspan": 1, "children": [{ "type": "text", "value": "b" }] }]
             ] }])
         );
-        assert_eq!(span_of(None), 1);
-        assert_eq!(span_of(Some("0")), 1);
-        assert_eq!(span_of(Some("-3")), 1);
-        assert_eq!(span_of(Some("x")), 1);
-        assert_eq!(span_of(Some(" 4 ")), 4);
+        assert_eq!(span_of(None, MAX_COLSPAN), 1);
+        assert_eq!(span_of(Some("0"), MAX_COLSPAN), 1);
+        assert_eq!(span_of(Some("-3"), MAX_COLSPAN), 1);
+        assert_eq!(span_of(Some("x"), MAX_COLSPAN), 1);
+        assert_eq!(span_of(Some(" 4 "), MAX_COLSPAN), 4);
+        assert_eq!(span_of(Some("4294967295"), MAX_COLSPAN), MAX_COLSPAN);
+        assert_eq!(span_of(Some("1e10"), MAX_ROWSPAN), MAX_ROWSPAN);
+        assert_eq!(span_of(Some("Infinity"), MAX_COLSPAN), MAX_COLSPAN);
         let d = entry(&main_text("<table id=\"t\"></table>"));
         assert_eq!(
             value(&d.body),
