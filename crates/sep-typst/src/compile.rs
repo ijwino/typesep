@@ -95,6 +95,10 @@ fn format_diagnostic(world: &SepWorld, diag: &SourceDiagnostic) -> String {
     text
 }
 
+pub fn typesets(world: &SepWorld) -> bool {
+    typst::compile::<PagedDocument>(world).output.is_ok()
+}
+
 pub fn compile_pdf(world: &SepWorld, creator: &str) -> Result<Compiled, CompileError> {
     let warned = typst::compile::<PagedDocument>(world);
     let warnings: Vec<String> = warned

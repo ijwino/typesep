@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use sep_core::model::EntryDoc;
 use sep_core::style::Style;
 
-use crate::compile::{CompileError, Compiled, compile_pdf};
+use crate::compile::{CompileError, Compiled, compile_pdf, typesets};
 use crate::emit::{EmitOptions, Rendered, emit_document};
 use crate::fonts::Fonts;
 use crate::world::SepWorld;
@@ -120,6 +120,11 @@ pub fn compile_document(
     }
 
     progress("Typst refused the document; looking for the formulas at fault".to_owned());
+    let laid_out = typesets(&SepWorld::new(
+        rendered.source.clone(),
+        &rendered.figures,
+        fonts,
+    ));
     let mut compiles = |raw: &BTreeSet<usize>| {
         let attempt = emit_document(
             docs,
@@ -129,7 +134,11 @@ pub fn compile_document(
                 ..opts
             },
         );
-        build(&attempt).is_ok()
+        if laid_out {
+            build(&attempt).is_ok()
+        } else {
+            typesets(&SepWorld::new(attempt.source, &attempt.figures, fonts))
+        }
     };
     let narrowed = narrow(rendered.formulas.len(), &mut compiles);
     let Some(culprits) = narrowed.formulas else {
