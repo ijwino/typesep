@@ -77,6 +77,23 @@ fn a_formula_mitex_cannot_read_says_why_and_the_rest_still_convert() {
 }
 
 #[test]
+fn a_formula_typst_cannot_evaluate_fails_alone() {
+    let items = maths(&[
+        ("a + b", false),
+        (r"\sqrt[]{x}", false),
+        ("c + d", false),
+        (r"\frac{1}{2}", true),
+    ]);
+    assert!(items[1].is_err(), "{items:?}");
+    for at in [0, 2, 3] {
+        assert!(
+            items[at].as_ref().is_ok_and(|m| m.starts_with("<math")),
+            "{items:?}"
+        );
+    }
+}
+
+#[test]
 fn the_user_agent_stylesheet_comes_with_the_maths() {
     let converted = convert(
         &[Formula {

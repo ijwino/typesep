@@ -44,71 +44,87 @@ pub fn convert(formulas: &[Formula], macros: &MacroTable, fonts: &Fonts) -> Math
     }
     let converter = Converter::new(macros);
     let mut items: Vec<Result<String, String>> = Vec::with_capacity(formulas.len());
+    let mut calls = Vec::new();
+    for (index, formula) in formulas.iter().enumerate() {
+        match converter.convert(&formula.tex, formula.display) {
+            Ok(code) => {
+                calls.push((
+                    index,
+                    format!(
+                        "#fs-formula({index}, {}, block: {})\n",
+                        escape_string(&code),
+                        formula.display
+                    ),
+                ));
+                items.push(Err(
+                    "Typst's HTML export produced no MathML for it".to_owned()
+                ));
+            }
+            Err(reason) => items.push(Err(reason)),
+        }
+    }
+
+    let mut maths = Maths::default();
+    typeset(&calls, fonts, &mut items, &mut maths);
+    maths.warnings.sort();
+    maths.warnings.dedup();
+    maths.items = items;
+    maths
+}
+
+fn typeset(
+    calls: &[(usize, String)],
+    fonts: &Fonts,
+    items: &mut [Result<String, String>],
+    maths: &mut Maths,
+) {
+    if calls.is_empty() {
+        return;
+    }
     let mut source = format!("#import \"{MITEX_SCOPE_PATH}\": mitex-scope\n");
     source.push_str(
         "#let fs-math-scope = mitex-scope + (mitexref: it => it, mitexcite: it => it, mitexlabel: it => none)\n",
     );
     source.push_str(SCOPE_OVERRIDES);
     source.push_str("#let fs-formula(n, src, block: false) = html.elem(\"div\", attrs: (id: \"fs-formula-\" + str(n)), math.equation(block: block, eval(\"$\" + src + \"$\", scope: fs-math-scope)))\n");
-
-    for (index, formula) in formulas.iter().enumerate() {
-        match converter.convert(&formula.tex, formula.display) {
-            Ok(code) => {
-                source.push_str(&format!(
-                    "#fs-formula({index}, {}, block: {})\n",
-                    escape_string(&code),
-                    formula.display
-                ));
-                items.push(Ok(String::new()));
-            }
-            Err(reason) => items.push(Err(reason)),
-        }
+    for (_, call) in calls {
+        source.push_str(call);
     }
 
     let world = SepWorld::new(source, &[], fonts).for_html();
     let warned = typst::compile::<HtmlDocument>(&world);
-    let mut warnings: Vec<String> = warned
-        .warnings
-        .iter()
-        .map(|d| d.message.to_string())
-        .filter(|m| m != EXPORT_NOTICE)
-        .map(|m| format!("maths: {m}"))
-        .collect();
-    warnings.sort();
-    warnings.dedup();
-
     let document = match warned.output {
         Ok(document) => document,
         Err(errors) => {
-            let reason = errors
-                .first()
-                .map(|d| d.message.to_string())
-                .unwrap_or_else(|| "the maths could not be compiled".to_owned());
-            return Maths {
-                items: items
-                    .into_iter()
-                    .map(|item| Err(item.err().unwrap_or_else(|| reason.clone())))
-                    .collect(),
-                css: String::new(),
-                warnings,
-            };
+            if let [(index, _)] = calls {
+                items[*index] = Err(errors
+                    .first()
+                    .map(|d| d.message.to_string())
+                    .unwrap_or_else(|| "the maths could not be compiled".to_owned()));
+            } else {
+                let (head, tail) = calls.split_at(calls.len() / 2);
+                typeset(head, fonts, items, maths);
+                typeset(tail, fonts, items, maths);
+            }
+            return;
         }
     };
+    maths.warnings.extend(
+        warned
+            .warnings
+            .iter()
+            .map(|d| d.message.to_string())
+            .filter(|m| m != EXPORT_NOTICE)
+            .map(|m| format!("maths: {m}")),
+    );
 
     let mut found = std::collections::BTreeMap::new();
     collect_formulas(document.root_node(), &mut found);
-    for (index, item) in items.iter_mut().enumerate() {
-        if item.is_ok() {
-            *item = match found.get(&index) {
-                Some(math) => Ok(math.clone()),
-                None => Err("Typst's HTML export produced no MathML for it".to_owned()),
-            };
-        }
+    for (index, math) in found {
+        items[index] = Ok(math);
     }
-    Maths {
-        items,
-        css: user_agent_css(document.root_node()),
-        warnings,
+    if maths.css.is_empty() {
+        maths.css = user_agent_css(document.root_node());
     }
 }
 
