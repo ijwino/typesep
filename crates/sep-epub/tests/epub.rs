@@ -8,7 +8,7 @@ use sep_core::model::{
 use sep_core::sections::{ALL_CONTENT_KEYS, ContentKey};
 use sep_core::style::{ResolveOptions, Style, resolve_style};
 use sep_epub::nav::nav_items;
-use sep_epub::xhtml::{Ctx, MathPass, entry_html, xml_id};
+use sep_epub::xhtml::{Ctx, MathPass, entry_html, esc, xml_id};
 use sep_epub::{EpubError, EpubOptions, build_epub};
 use sep_typst::fonts::Fonts;
 use sep_typst::images::Image;
@@ -311,4 +311,12 @@ fn an_svg_image_by_reference_does_not_mark_its_document_as_svg() {
         .unwrap();
     assert!(opf.contains("media-type=\"image/svg+xml\""), "{opf}");
     assert!(!opf.contains("properties=\"svg\""), "{opf}");
+}
+
+#[test]
+fn characters_xml_forbids_are_dropped() {
+    assert_eq!(esc("a\u{1}b\u{8}c\u{1f}d"), "abcd");
+    assert_eq!(esc("\u{fffe}x\u{ffff}"), "x");
+    assert_eq!(esc("tab\tline\nreturn\r"), "tab\tline\nreturn\r");
+    assert_eq!(esc("<&>"), "&lt;&amp;&gt;");
 }
