@@ -798,7 +798,8 @@ fn walk_entries(
     let mut queue: std::collections::VecDeque<(String, u32)> =
         entries.iter().map(|e| (e.clone(), 0)).collect();
     let mut seen: BTreeSet<String> = BTreeSet::new();
-    let mut done = 0usize;
+    let mut attempted = 0usize;
+    let mut delivered = 0usize;
     let quiet = opts.quiet;
     let batch = entries.len() > 1 || depth > 0;
 
@@ -817,9 +818,10 @@ fn walk_entries(
             continue;
         }
 
-        let total = done + 1 + queue.len();
+        attempted += 1;
+        let total = attempted + queue.len();
         let counter = if total > 1 {
-            format!("[{}/{total}] ", done + 1)
+            format!("[{attempted}/{total}] ")
         } else {
             String::new()
         };
@@ -832,7 +834,6 @@ fn walk_entries(
             let verb = opts.verb.word(source, &target);
             eprintln!("{counter}{verb} {}{deeper}", target.slug);
         }
-        done += 1;
 
         let mut log = |message: &str| {
             if !quiet {
@@ -877,17 +878,20 @@ fn walk_entries(
                 queue.push_back((url, reached_at + 1));
             }
         }
-        if let Err(message) = deliver(loaded) {
-            if !batch {
-                return Err(user_error(message));
-            }
-            failures.push((target.slug.clone(), message));
-            if !quiet {
-                eprintln!("  {} failed, continuing", target.slug);
+        match deliver(loaded) {
+            Ok(()) => delivered += 1,
+            Err(message) => {
+                if !batch {
+                    return Err(user_error(message));
+                }
+                failures.push((target.slug.clone(), message));
+                if !quiet {
+                    eprintln!("  {} failed, continuing", target.slug);
+                }
             }
         }
     }
-    Ok(done)
+    Ok(delivered)
 }
 
 #[derive(Clone, Copy)]
@@ -1817,5 +1821,32 @@ mod tests {
                 .unwrap_err()
                 .starts_with("--paper2 is not a style flag\n  style flags: --paper, --margin")
         );
+    }
+
+    #[test]
+    fn entries_that_fail_are_not_counted_as_walked() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::new(dir.path());
+        library.init().unwrap();
+        let mut source = Source::offline(&library);
+        let sections = BTreeSet::new();
+        let walk = WalkOptions {
+            verb: Verb::Reading,
+            sections: &sections,
+            images: false,
+            quiet: true,
+        };
+        let mut failures = Vec::new();
+        let walked = walk_entries(
+            &mut source,
+            &["aaa-x".to_owned(), "bbb-y".to_owned()],
+            "live",
+            0,
+            &walk,
+            &mut failures,
+            &mut |_| Ok(()),
+        );
+        assert_eq!(walked.ok(), Some(0));
+        assert_eq!(failures.len(), 2);
     }
 }
