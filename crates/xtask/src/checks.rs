@@ -46,7 +46,12 @@ impl Tally {
     }
 }
 
-fn targets(binary: &Path, snapshots: &Path, all: bool) -> Result<Vec<Target>, String> {
+fn targets(
+    binary: &Path,
+    library: &Path,
+    snapshots: &Path,
+    all: bool,
+) -> Result<Vec<Target>, String> {
     if !all {
         let mut slugs: Vec<String> = fs::read_dir(snapshots)
             .map_err(|err| format!("{}: {err}", snapshots.display()))?
@@ -67,6 +72,8 @@ fn targets(binary: &Path, snapshots: &Path, all: bool) -> Result<Vec<Target>, St
     }
     let listed = Command::new(binary)
         .arg("list")
+        .arg("--library")
+        .arg(library)
         .output()
         .map_err(|err| format!("{}: {err}", binary.display()))?;
     if !listed.status.success() {
@@ -99,6 +106,7 @@ fn note_line(line: &str) -> Option<String> {
 
 pub struct CheckArgs {
     pub binary: PathBuf,
+    pub library: PathBuf,
     pub out: PathBuf,
     pub snapshots: PathBuf,
     pub all: bool,
@@ -107,7 +115,7 @@ pub struct CheckArgs {
 }
 
 pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
-    let targets = match targets(&args.binary, &args.snapshots, args.all) {
+    let targets = match targets(&args.binary, &args.library, &args.snapshots, args.all) {
         Ok(targets) => targets,
         Err(message) => super::fail(&message),
     };
@@ -133,6 +141,8 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
             target.slug.clone(),
             "--sections".to_owned(),
             "all".to_owned(),
+            "--library".to_owned(),
+            args.library.display().to_string(),
             "-o".to_owned(),
             args.out.display().to_string(),
         ];
@@ -223,7 +233,7 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
              unzip -d tools /tmp/epubcheck.zip",
         ),
     };
-    let targets = match targets(&args.binary, &args.snapshots, args.all) {
+    let targets = match targets(&args.binary, &args.library, &args.snapshots, args.all) {
         Ok(targets) => targets,
         Err(message) => super::fail(&message),
     };
@@ -244,6 +254,8 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
             "all".to_owned(),
             "--format".to_owned(),
             "epub".to_owned(),
+            "--library".to_owned(),
+            args.library.display().to_string(),
             "-o".to_owned(),
             args.out.display().to_string(),
         ];

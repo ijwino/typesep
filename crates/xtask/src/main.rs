@@ -49,6 +49,9 @@ struct Walk {
     /// Leave the files behind instead of deleting them as they pass.
     #[arg(long)]
     keep: bool,
+    /// The library the binary reads; the corpus's own by default.
+    #[arg(long, value_name = "DIR")]
+    library: Option<PathBuf>,
     /// Say what is happening, entry by entry.
     #[arg(long)]
     verbose: bool,
@@ -140,6 +143,7 @@ fn main() -> std::process::ExitCode {
 fn walk(args: Walk, root: &Path, name: &str) -> checks::CheckArgs {
     checks::CheckArgs {
         binary: root.join(&args.exec),
+        library: args.library.unwrap_or_else(|| corpus_subdir("library")),
         out: args
             .out
             .map_or_else(|| root.join("out").join(name), |out| root.join(out)),
