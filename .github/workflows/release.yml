@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -18,6 +18,8 @@ jobs:
       version: ${{ steps.pick.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - id: pick
         shell: bash
         run: |
@@ -83,6 +85,8 @@ jobs:
             smoke: false
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Add the target
         run: rustup target add ${{ matrix.target }}
@@ -130,8 +134,12 @@ jobs:
     needs: [version, build]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/download-artifact@v8
         with:
