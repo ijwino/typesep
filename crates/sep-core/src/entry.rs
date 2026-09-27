@@ -282,18 +282,22 @@ pub fn load_entry(
     }
 
     let mut macro_sources: BTreeSet<String> = BTreeSet::new();
-    let mut add_macros = |source: &mut Source<'_>, doc: &mut EntryDoc, page_url: &str| {
-        let Some(url) = macros_url(page_url) else {
-            return;
+    let mut add_macros =
+        |source: &mut Source<'_>, doc: &mut EntryDoc, page_url: &str, log: &mut dyn FnMut(&str)| {
+            let Some(url) = macros_url(page_url) else {
+                return;
+            };
+            if !macro_sources.insert(url.clone()) {
+                return;
+            }
+            match source.page(&url, source.refresh) {
+                Ok(page) => doc.meta.macros.extend(extract_macros(&page.text)),
+                Err(LoadError::NotHeld { .. } | LoadError::Remembered { .. }) => {}
+                Err(LoadError::Fetch(err)) if err.is_gone() => {}
+                Err(err) => log(&format!("skipping {url}: {err}")),
+            }
         };
-        if !macro_sources.insert(url.clone()) {
-            return;
-        }
-        if let Ok(page) = source.page(&url, source.refresh) {
-            doc.meta.macros.extend(extract_macros(&page.text));
-        }
-    };
-    add_macros(source, &mut doc, &target.url);
+    add_macros(source, &mut doc, &target.url, opts.log);
 
     let wanted = [
         (
@@ -321,7 +325,7 @@ pub fn load_entry(
                             kind,
                         },
                     ));
-                    add_macros(source, &mut doc, &url);
+                    add_macros(source, &mut doc, &url, opts.log);
                 }
                 Err(err) => (opts.log)(&format!("skipping {url}: {err}")),
             }
@@ -633,6 +637,55 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
             "what the first load recorded"
         );
         assert_eq!(UpdateStatus::of(&again), UpdateStatus::Unchanged);
+    }
+
+    #[test]
+    fn a_macro_file_that_cannot_be_fetched_is_said_and_one_that_is_absent_is_not() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = Library::new(temp.path());
+        library.init().unwrap();
+        let target = normalize_entry("turing-machine", "live").unwrap();
+        let none: BTreeSet<ContentKey> = BTreeSet::new();
+        let mut logged: Vec<String> = Vec::new();
+
+        let mut harness = crate::fetch::testing::Harness::new(vec![
+            Ok(crate::fetch::testing::ok(TM, PAGE)),
+            Err("timed out".into()),
+        ]);
+        {
+            let mut source = Source::fetching(&library, &mut harness.fetcher);
+            load_entry(
+                &mut source,
+                &target,
+                LoadOptions {
+                    content: &none,
+                    log: &mut |m| logged.push(m.to_owned()),
+                },
+            )
+            .unwrap();
+        }
+        assert_eq!(logged.len(), 1, "{logged:?}");
+        assert!(
+            logged[0].starts_with(&format!("skipping {TM}local.js: could not fetch")),
+            "{}",
+            logged[0]
+        );
+
+        logged.clear();
+        library.mark_missing(&format!("{TM}local.js")).unwrap();
+        load_entry(
+            &mut Source::offline(&library),
+            &target,
+            LoadOptions {
+                content: &none,
+                log: &mut |m| logged.push(m.to_owned()),
+            },
+        )
+        .unwrap();
+        assert!(
+            logged.is_empty(),
+            "most entries have no local.js: {logged:?}"
+        );
     }
 
     #[test]
