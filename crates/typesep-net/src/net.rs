@@ -30,14 +30,16 @@ pub struct LoadedPage {
     pub revalidated: bool,
 }
 
-pub struct Source<'a> {
+/// Where a source's loader gets its files: the library, and the network when the command may
+/// fetch.
+pub struct Net<'a> {
     pub library: &'a Library,
     pub fetcher: Option<&'a mut Fetcher>,
     pub refresh: bool,
     pub check_updates: bool,
 }
 
-impl<'a> Source<'a> {
+impl<'a> Net<'a> {
     pub fn offline(library: &'a Library) -> Self {
         Self {
             library,

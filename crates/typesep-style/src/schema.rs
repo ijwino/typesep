@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use super::resolve::nearest;
 use super::units::{LENGTH_UNITS, PAPER_SIZES, match_length, paper_size};
 use super::value::{Map, Value};
-use crate::regions::ALL_REGIONS;
+use crate::regions::regions;
 use typesep_html::js;
 use typesep_html::lazy_regex;
 
@@ -623,7 +623,7 @@ fn build_knobs() -> Vec<Knob> {
         k("toc.title", String, text(""), "Heading above the table of contents. Empty means no heading."),
 
         k("links.mode", en(&["inline", "footnote", "endnote", "none"]), text("inline"), "How external links are rendered."),
-        k("links.sections", EnumList(ALL_REGIONS.to_vec()), list(&["preamble", "body", "oir", "notes", "supplements"]),
+        k("links.sections", EnumList(regions()), list(&["preamble", "body", "oir", "notes", "supplements"]),
             "Parts of the entry where links.mode footnote or endnote applies; links elsewhere (the bibliography, say) stay inline."),
         k("links.color", Color, text("black"), "Link color."),
         k("links.underline", Boolean, Value::Bool(false), "Underline links."),
@@ -878,7 +878,7 @@ mod tests {
         );
         assert_eq!(
             sections.kind.coerce(&s("body,Notes")).unwrap_err(),
-            "\"Notes\" is not one of: preamble, body, bib, academic, oir, related, notes, supplements"
+            "\"Notes\" is not one of: preamble, body, notes, supplements"
         );
         assert_eq!(
             Length.describe(),

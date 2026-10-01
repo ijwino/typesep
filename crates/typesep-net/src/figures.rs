@@ -2,7 +2,7 @@ use typesep_model::Doc;
 use typesep_model::walk::figure_urls;
 
 use crate::fetch::{FetchOptions, FetchResult};
-use crate::net::Source;
+use crate::net::Net;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FigureFetch {
@@ -12,10 +12,10 @@ pub struct FigureFetch {
     pub failed: Vec<(String, String)>,
 }
 
-pub fn fetch_figures(doc: &Doc, source: &mut Source<'_>, log: &mut dyn FnMut(&str)) -> FigureFetch {
+pub fn fetch_figures(doc: &Doc, net: &mut Net<'_>, log: &mut dyn FnMut(&str)) -> FigureFetch {
     let mut result = FigureFetch::default();
     for url in figure_urls(doc) {
-        match source.library.has(&url) {
+        match net.library.has(&url) {
             Ok(true) => {
                 result.present.push(url);
                 continue;
@@ -27,14 +27,14 @@ pub fn fetch_figures(doc: &Doc, source: &mut Source<'_>, log: &mut dyn FnMut(&st
                 continue;
             }
         }
-        if !source.refresh && source.library.is_missing(&url).unwrap_or(false) {
+        if !net.refresh && net.library.is_missing(&url).unwrap_or(false) {
             log(&format!(
                 "skipping image {url}: the server had no such file last time (--refresh asks again)"
             ));
             result.missing.push(url);
             continue;
         }
-        let Some(fetcher) = source.fetcher.as_deref_mut() else {
+        let Some(fetcher) = net.fetcher.as_deref_mut() else {
             let reason = format!("{url} is not in the library");
             log(&format!("skipping image {url}: {reason}"));
             result.failed.push((url, reason));
@@ -43,7 +43,7 @@ pub fn fetch_figures(doc: &Doc, source: &mut Source<'_>, log: &mut dyn FnMut(&st
         match fetcher.get(&url, FetchOptions::default()) {
             Ok(FetchResult::NotModified) => {}
             Ok(FetchResult::Fetched(res)) => {
-                if let Err(err) = source.library.write(
+                if let Err(err) = net.library.write(
                     &url,
                     &res.body,
                     res.etag.as_deref(),
@@ -60,7 +60,7 @@ pub fn fetch_figures(doc: &Doc, source: &mut Source<'_>, log: &mut dyn FnMut(&st
                 let reason = err.to_string();
                 log(&format!("skipping image {url}: {reason}"));
                 if err.is_gone() {
-                    let _ = source.library.mark_missing(&url);
+                    let _ = net.library.mark_missing(&url);
                     result.missing.push(url);
                 } else {
                     result.failed.push((url, reason));
@@ -104,7 +104,7 @@ mod tests {
             doc.body.push(Block::Figure(figure(src)));
         }
 
-        let pass = fetch_figures(&doc, &mut Source::offline(&library), &mut |_| {});
+        let pass = fetch_figures(&doc, &mut Net::offline(&library), &mut |_| {});
         assert_eq!(pass.present, [held]);
         assert_eq!(pass.missing, [gone]);
         assert_eq!(

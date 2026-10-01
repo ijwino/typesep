@@ -3,7 +3,8 @@ use std::collections::BTreeSet;
 use typesep_model::walk::links_in_block;
 use typesep_model::{AttachmentKind, Doc};
 use typesep_net::library::HOST;
-use typesep_net::net::{LoadError, Source};
+use typesep_net::net::{LoadError, Net};
+use typesep_net::source::{LoadOptions, Loaded};
 
 use crate::parse::metadata::is_edition;
 use crate::parse::{
@@ -82,11 +83,6 @@ pub fn normalize_entry(input: &str, edition: &str) -> Result<EntryTarget, EntryE
     Ok(EntryTarget { slug, edition, url })
 }
 
-pub struct LoadOptions<'a> {
-    pub content: &'a BTreeSet<ContentKey>,
-    pub log: &'a mut dyn FnMut(&str),
-}
-
 fn macros_url(page_url: &str) -> Option<String> {
     url::Url::parse(page_url)
         .ok()?
@@ -95,30 +91,23 @@ fn macros_url(page_url: &str) -> Option<String> {
         .map(|u| u.to_string())
 }
 
-#[derive(Debug)]
-pub struct LoadedEntry {
-    pub doc: Doc,
-    pub from_cache: bool,
-    pub previous_revision: Option<String>,
-}
-
 pub fn load_entry(
-    source: &mut Source<'_>,
+    net: &mut Net<'_>,
     target: &EntryTarget,
     opts: LoadOptions<'_>,
-) -> Result<LoadedEntry, LoadError> {
-    let previous_revision = source
+) -> Result<Loaded, LoadError> {
+    let previous_revision = net
         .library
         .entry_meta(&target.url)?
         .map(|record| record.revision);
 
-    let refresh_page = source.refresh || source.check_updates;
-    let page = source
+    let refresh_page = net.refresh || net.check_updates;
+    let page = net
         .page(&target.url, refresh_page)
         .map_err(|err| match err {
             LoadError::NotHeld { url } => LoadError::NotInLibrary {
                 url,
-                dir: source.library.dir().display().to_string(),
+                dir: net.library.dir().display().to_string(),
                 slug: target.slug.clone(),
             },
             other => other,
@@ -143,29 +132,28 @@ pub fn load_entry(
             fetched_at: &fetched_at,
         },
     );
-    if source.writes() {
-        source
-            .library
+    if net.writes() {
+        net.library
             .record_entry(&target.url, &doc.meta.title, &doc.meta.origin.revision)?;
     }
 
     let mut macro_sources: BTreeSet<String> = BTreeSet::new();
     let mut add_macros =
-        |source: &mut Source<'_>, doc: &mut Doc, page_url: &str, log: &mut dyn FnMut(&str)| {
+        |net: &mut Net<'_>, doc: &mut Doc, page_url: &str, log: &mut dyn FnMut(&str)| {
             let Some(url) = macros_url(page_url) else {
                 return;
             };
             if !macro_sources.insert(url.clone()) {
                 return;
             }
-            match source.page(&url, source.refresh) {
+            match net.page(&url, net.refresh) {
                 Ok(page) => doc.meta.macros.extend(extract_macros(&page.text)),
                 Err(LoadError::NotHeld { .. } | LoadError::Remembered { .. }) => {}
                 Err(LoadError::Fetch(err)) if err.is_gone() => {}
                 Err(err) => log(&format!("skipping {url}: {err}")),
             }
         };
-    add_macros(source, &mut doc, &target.url, opts.log);
+    add_macros(net, &mut doc, &target.url, opts.log);
 
     let wanted = [
         (
@@ -180,11 +168,11 @@ pub fn load_entry(
         ),
     ];
     for (key, kind, urls) in wanted {
-        if !opts.content.contains(&key) {
+        if !opts.sections.contains(key.name()) {
             continue;
         }
         for url in urls {
-            match source.page(&url, source.refresh) {
+            match net.page(&url, net.refresh) {
                 Ok(attached) => {
                     doc.attachments.push(parse_attachment(
                         &attached.text,
@@ -193,53 +181,18 @@ pub fn load_entry(
                             kind,
                         },
                     ));
-                    add_macros(source, &mut doc, &url, opts.log);
+                    add_macros(net, &mut doc, &url, opts.log);
                 }
                 Err(err) => (opts.log)(&format!("skipping {url}: {err}")),
             }
         }
     }
 
-    Ok(LoadedEntry {
+    Ok(Loaded {
         doc,
         from_cache: page.from_cache,
         previous_revision,
     })
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UpdateStatus {
-    New,
-    Revised { previous: String },
-    Unchanged,
-}
-
-impl UpdateStatus {
-    pub fn of(entry: &LoadedEntry) -> Self {
-        match &entry.previous_revision {
-            None => UpdateStatus::New,
-            Some(previous) if *previous != entry.doc.meta.origin.revision => {
-                UpdateStatus::Revised {
-                    previous: previous.clone(),
-                }
-            }
-            Some(_) => UpdateStatus::Unchanged,
-        }
-    }
-
-    pub fn changed(&self) -> bool {
-        !matches!(self, UpdateStatus::Unchanged)
-    }
-}
-
-impl std::fmt::Display for UpdateStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UpdateStatus::New => write!(f, "new"),
-            UpdateStatus::Revised { previous } => write!(f, "revised (was {previous})"),
-            UpdateStatus::Unchanged => write!(f, "unchanged"),
-        }
-    }
 }
 
 pub fn related_entry_urls(doc: &Doc) -> Vec<String> {
@@ -264,6 +217,7 @@ mod tests {
     use super::*;
     use crate::sections::ALL_CONTENT_KEYS;
     use typesep_net::library::Library;
+    use typesep_net::source::UpdateStatus;
 
     fn target(slug: &str, edition: &str, url: &str) -> EntryTarget {
         EntryTarget {
@@ -404,16 +358,19 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         let library = Library::new(temp.path());
         library.init().unwrap();
         let target = normalize_entry("turing-machine", "live").unwrap();
-        let all: BTreeSet<ContentKey> = ALL_CONTENT_KEYS.into_iter().collect();
+        let all: BTreeSet<String> = ALL_CONTENT_KEYS
+            .iter()
+            .map(|k| k.name().to_owned())
+            .collect();
         let mut harness = typesep_net::fetch::testing::Harness::new(answers());
 
         let loaded = {
-            let mut source = Source::fetching(&library, &mut harness.fetcher);
+            let mut source = Net::fetching(&library, &mut harness.fetcher);
             load_entry(
                 &mut source,
                 &target,
                 LoadOptions {
-                    content: &all,
+                    sections: &all,
                     log: &mut |_| {},
                 },
             )
@@ -445,12 +402,12 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
 
         let before = harness.urls().len();
         let again = {
-            let mut source = Source::fetching(&library, &mut harness.fetcher);
+            let mut source = Net::fetching(&library, &mut harness.fetcher);
             load_entry(
                 &mut source,
                 &target,
                 LoadOptions {
-                    content: &all,
+                    sections: &all,
                     log: &mut |_| {},
                 },
             )
@@ -472,7 +429,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         let library = Library::new(temp.path());
         library.init().unwrap();
         let target = normalize_entry("turing-machine", "live").unwrap();
-        let none: BTreeSet<ContentKey> = BTreeSet::new();
+        let none: BTreeSet<String> = BTreeSet::new();
         let mut logged: Vec<String> = Vec::new();
 
         let mut harness = typesep_net::fetch::testing::Harness::new(vec![
@@ -480,12 +437,12 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
             Err("timed out".into()),
         ]);
         {
-            let mut source = Source::fetching(&library, &mut harness.fetcher);
+            let mut source = Net::fetching(&library, &mut harness.fetcher);
             load_entry(
                 &mut source,
                 &target,
                 LoadOptions {
-                    content: &none,
+                    sections: &none,
                     log: &mut |m| logged.push(m.to_owned()),
                 },
             )
@@ -501,10 +458,10 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         logged.clear();
         library.mark_missing(&format!("{TM}local.js")).unwrap();
         load_entry(
-            &mut Source::offline(&library),
+            &mut Net::offline(&library),
             &target,
             LoadOptions {
-                content: &none,
+                sections: &none,
                 log: &mut |m| logged.push(m.to_owned()),
             },
         )
@@ -527,19 +484,18 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
             .record_entry(TM, "Turing Machines", "Wed May 21, 2025")
             .unwrap();
         let target = normalize_entry("turing-machine", "live").unwrap();
-        let none: BTreeSet<ContentKey> = BTreeSet::new();
+        let none: BTreeSet<String> = BTreeSet::new();
 
         let mut harness = typesep_net::fetch::testing::Harness::new(vec![Ok(
             typesep_net::fetch::testing::status(304, "Not Modified"),
         )]);
         let loaded = {
-            let mut source =
-                Source::fetching(&library, &mut harness.fetcher).with_check_updates(true);
+            let mut source = Net::fetching(&library, &mut harness.fetcher).with_check_updates(true);
             load_entry(
                 &mut source,
                 &target,
                 LoadOptions {
-                    content: &none,
+                    sections: &none,
                     log: &mut |_| {},
                 },
             )
@@ -557,13 +513,12 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
             typesep_net::fetch::testing::ok(TM, &revised),
         )]);
         let loaded = {
-            let mut source =
-                Source::fetching(&library, &mut harness.fetcher).with_check_updates(true);
+            let mut source = Net::fetching(&library, &mut harness.fetcher).with_check_updates(true);
             load_entry(
                 &mut source,
                 &target,
                 LoadOptions {
-                    content: &none,
+                    sections: &none,
                     log: &mut |_| {},
                 },
             )
@@ -595,14 +550,17 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         library.init().unwrap();
         library.write(TM, PAGE.as_bytes(), None, None).unwrap();
         let target = normalize_entry("turing-machine", "live").unwrap();
-        let all: BTreeSet<ContentKey> = ALL_CONTENT_KEYS.into_iter().collect();
+        let all: BTreeSet<String> = ALL_CONTENT_KEYS
+            .iter()
+            .map(|k| k.name().to_owned())
+            .collect();
         let mut skipped: Vec<String> = Vec::new();
 
         let loaded = load_entry(
-            &mut Source::offline(&library),
+            &mut Net::offline(&library),
             &target,
             LoadOptions {
-                content: &all,
+                sections: &all,
                 log: &mut |m| skipped.push(m.to_owned()),
             },
         )
@@ -680,7 +638,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
             Ok(typesep_net::fetch::testing::status(404, "Not Found")),
         ]);
         let pass = {
-            let mut source = Source::fetching(&library, &mut harness.fetcher);
+            let mut source = Net::fetching(&library, &mut harness.fetcher);
             typesep_net::figures::fetch_figures(&doc, &mut source, &mut |_| {})
         };
         assert_eq!(pass.present, [format!("{TM}S1.svg")]);
@@ -692,7 +650,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
 
         let before = harness.urls().len();
         let pass = {
-            let mut source = Source::fetching(&library, &mut harness.fetcher);
+            let mut source = Net::fetching(&library, &mut harness.fetcher);
             typesep_net::figures::fetch_figures(&doc, &mut source, &mut |_| {})
         };
         assert_eq!(harness.urls().len(), before, "no request was made");
@@ -706,13 +664,16 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         let temp = tempfile::tempdir().unwrap();
         let library = Library::new(temp.path());
         let target = normalize_entry("turing-machine", "live").unwrap();
-        let all: BTreeSet<ContentKey> = ALL_CONTENT_KEYS.into_iter().collect();
+        let all: BTreeSet<String> = ALL_CONTENT_KEYS
+            .iter()
+            .map(|k| k.name().to_owned())
+            .collect();
         let mut logged: Vec<String> = Vec::new();
         let err = load_entry(
-            &mut Source::offline(&library),
+            &mut Net::offline(&library),
             &target,
             LoadOptions {
-                content: &all,
+                sections: &all,
                 log: &mut |m| logged.push(m.to_owned()),
             },
         )
@@ -745,10 +706,10 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         .unwrap();
 
         let doc = load_entry(
-            &mut Source::offline(&library),
+            &mut Net::offline(&library),
             &target,
             LoadOptions {
-                content: &all,
+                sections: &all,
                 log: &mut |m| logged.push(m.to_owned()),
             },
         )
@@ -786,10 +747,10 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
 
         let none = BTreeSet::new();
         let doc = load_entry(
-            &mut Source::offline(&library),
+            &mut Net::offline(&library),
             &target,
             LoadOptions {
-                content: &none,
+                sections: &none,
                 log: &mut |_| panic!("nothing to skip"),
             },
         )
@@ -806,10 +767,10 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         std::fs::create_dir_all(&unit).unwrap();
         std::fs::write(unit.join("index.html"), "<html/>").unwrap();
         let doc = load_entry(
-            &mut Source::offline(&library),
+            &mut Net::offline(&library),
             &archived,
             LoadOptions {
-                content: &all,
+                sections: &all,
                 log: &mut |_| {},
             },
         )

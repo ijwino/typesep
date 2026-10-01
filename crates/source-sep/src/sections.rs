@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use typesep_net::source::SectionSpec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ContentKey {
@@ -39,113 +39,93 @@ pub const SECTION_LABELS: [(ContentKey, &str); 4] = [
     (ContentKey::Related, "Related Entries"),
 ];
 
-/// The keys as the renderers take them, which name the sections of `Doc::back` and the
-/// notes and supplements.
-pub fn key_names(keys: &BTreeSet<ContentKey>) -> BTreeSet<String> {
-    keys.iter().map(|key| key.name().to_owned()).collect()
-}
-
-pub const DEFAULT_CONTENT_KEYS: [ContentKey; 4] = [
-    ContentKey::Bib,
-    ContentKey::Oir,
-    ContentKey::Related,
-    ContentKey::Notes,
+/// What `--sections` can name in an entry: the four sections at the end of its page, and the
+/// notes and supplements pages it links to.
+pub const SECTIONS: [SectionSpec; 6] = [
+    SectionSpec {
+        key: "bib",
+        label: "Bibliography",
+        aliases: &["bib", "bibliography"],
+        default: true,
+    },
+    SectionSpec {
+        key: "academic",
+        label: "Academic Tools",
+        aliases: &["academic", "academic-tools"],
+        default: false,
+    },
+    SectionSpec {
+        key: "oir",
+        label: "Other Internet Resources",
+        aliases: &["oir", "other-internet-resources"],
+        default: true,
+    },
+    SectionSpec {
+        key: "related",
+        label: "Related Entries",
+        aliases: &["related", "related-entries"],
+        default: true,
+    },
+    SectionSpec {
+        key: "notes",
+        label: "",
+        aliases: &["notes"],
+        default: true,
+    },
+    SectionSpec {
+        key: "supplements",
+        label: "",
+        aliases: &["supplements", "supplement"],
+        default: false,
+    },
 ];
-
-const ALIASES: [(&str, ContentKey); 11] = [
-    ("bib", ContentKey::Bib),
-    ("bibliography", ContentKey::Bib),
-    ("academic", ContentKey::Academic),
-    ("academic-tools", ContentKey::Academic),
-    ("oir", ContentKey::Oir),
-    ("other-internet-resources", ContentKey::Oir),
-    ("related", ContentKey::Related),
-    ("related-entries", ContentKey::Related),
-    ("notes", ContentKey::Notes),
-    ("supplements", ContentKey::Supplements),
-    ("supplement", ContentKey::Supplements),
-];
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("unknown section \"{token}\"\n  known: {known}")]
-pub struct SectionError {
-    pub token: String,
-    known: String,
-}
-
-pub fn parse_content_keys(spec: &str) -> Result<BTreeSet<ContentKey>, SectionError> {
-    let raw = spec.trim().to_ascii_lowercase();
-    if raw == "all" {
-        return Ok(ALL_CONTENT_KEYS.into_iter().collect());
-    }
-    if raw == "none" || raw.is_empty() {
-        return Ok(BTreeSet::new());
-    }
-    let mut out = BTreeSet::new();
-    for token in raw.split(',').map(str::trim).filter(|t| !t.is_empty()) {
-        match ALIASES.iter().find(|(alias, _)| *alias == token) {
-            Some((_, key)) => {
-                out.insert(*key);
-            }
-            None => {
-                let known = ALIASES
-                    .iter()
-                    .map(|(alias, _)| *alias)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                return Err(SectionError {
-                    token: token.to_owned(),
-                    known,
-                });
-            }
-        }
-    }
-    Ok(out)
-}
-
-pub fn default_sections_text() -> String {
-    DEFAULT_CONTENT_KEYS
-        .iter()
-        .map(|k| k.name())
-        .collect::<Vec<_>>()
-        .join(",")
-}
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
+    use typesep_net::source::{default_sections, parse_sections};
+
     use super::*;
 
     #[test]
     fn section_lists_parse_every_spelling() {
         use ContentKey::*;
-        let set = |keys: &[ContentKey]| keys.iter().copied().collect::<BTreeSet<_>>();
-        assert_eq!(parse_content_keys("all").unwrap(), set(&ALL_CONTENT_KEYS));
-        assert_eq!(parse_content_keys(" ALL ").unwrap(), set(&ALL_CONTENT_KEYS));
-        assert_eq!(parse_content_keys("none").unwrap(), set(&[]));
-        assert_eq!(parse_content_keys("").unwrap(), set(&[]));
+        let set = |keys: &[ContentKey]| {
+            keys.iter()
+                .map(|key| key.name().to_owned())
+                .collect::<BTreeSet<_>>()
+        };
+        let parse = |spec: &str| parse_sections(&SECTIONS, spec);
+        assert_eq!(parse("all").unwrap(), set(&ALL_CONTENT_KEYS));
+        assert_eq!(parse(" ALL ").unwrap(), set(&ALL_CONTENT_KEYS));
+        assert_eq!(parse("none").unwrap(), set(&[]));
+        assert_eq!(parse("").unwrap(), set(&[]));
         assert_eq!(
-            parse_content_keys(&default_sections_text()).unwrap(),
-            set(&DEFAULT_CONTENT_KEYS)
+            parse(&default_sections(&SECTIONS)).unwrap(),
+            set(&[Bib, Oir, Related, Notes])
         );
         assert_eq!(
-            parse_content_keys("Bibliography, supplement,,academic-tools").unwrap(),
+            parse("Bibliography, supplement,,academic-tools").unwrap(),
             set(&[Bib, Supplements, Academic])
         );
-        let err = parse_content_keys("bib,figures").unwrap_err();
+        let err = parse("bib,figures").unwrap_err();
         assert_eq!(err.token, "figures");
         assert_eq!(
             err.to_string(),
             "unknown section \"figures\"\n  known: bib, bibliography, academic, academic-tools, oir, other-internet-resources, related, related-entries, notes, supplements, supplement"
         );
-        assert_eq!(default_sections_text(), "bib,oir,related,notes");
-        assert_eq!(
-            key_names(&set(&[Related, Bib, Notes])),
-            ["bib", "notes", "related"].map(str::to_owned).into()
-        );
-        let regions: Vec<&str> = ["preamble", "body"]
-            .into_iter()
-            .chain(ALL_CONTENT_KEYS.iter().map(|k| k.name()))
-            .collect();
-        assert_eq!(typesep_style::regions::ALL_REGIONS.to_vec(), regions);
+        assert_eq!(default_sections(&SECTIONS), "bib,oir,related,notes");
+    }
+
+    #[test]
+    fn the_sections_are_the_content_keys_with_the_labels_the_parser_reads() {
+        let keys: Vec<&str> = SECTIONS.iter().map(|spec| spec.key).collect();
+        let names: Vec<&str> = ALL_CONTENT_KEYS.iter().map(|key| key.name()).collect();
+        assert_eq!(keys, names);
+        for (key, label) in SECTION_LABELS {
+            let spec = SECTIONS.iter().find(|spec| spec.key == key.name()).unwrap();
+            assert_eq!(spec.label, label);
+        }
     }
 }

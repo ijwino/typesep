@@ -1,23 +1,24 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use clap::{Arg, ArgAction, ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use output::{file_name_for, job_name_for, output_file};
-use source_sep::entry::{
-    EntryTarget, LoadOptions, LoadedEntry, UpdateStatus, load_entry, normalize_entry,
-    related_entry_urls,
-};
+use source_sep::Sep;
 use source_sep::parse::volume_meta;
-use source_sep::sections::{ContentKey, default_sections_text, key_names, parse_content_keys};
 use typesep_epub::{EpubOptions, build_epub};
 use typesep_model::canonical::model_json;
 use typesep_model::{Doc, Meta};
 use typesep_net::fetch::{DEFAULT_DELAY_MS, DEFAULT_TIMEOUT_MS, Fetcher, Loudness};
 use typesep_net::figures::fetch_figures;
 use typesep_net::library::{Library, default_library_dir};
-use typesep_net::net::Source;
+use typesep_net::net::Net;
+use typesep_net::source::{
+    Held, LoadOptions, Loaded, Registry, SectionSpec, UpdateStatus, WorkRef, default_sections,
+    parse_sections,
+};
 use typesep_style::shorthand::{choices_for, is_boolean, shorthand};
 use typesep_style::{
     Explained, PRESET_KEY, ResolveOptions, SHORTHANDS, SetItem, Style, StyleError, Value, View,
@@ -34,6 +35,41 @@ mod output;
 mod reference;
 
 const CONFIG_FILE: &str = "typesep.config.yaml";
+
+/// The sources typesep reads. Building it tells the style table the sections they name, so it
+/// comes before anything reads a style.
+fn sources() -> &'static Registry {
+    static SOURCES: LazyLock<Registry> = LazyLock::new(|| {
+        let registry = Registry::new(vec![&Sep]);
+        typesep_style::regions::register(registry.section_keys());
+        registry
+    });
+    &SOURCES
+}
+
+/// The `--sections` vocabulary: the default source's, until a command can name another.
+fn section_specs() -> &'static [SectionSpec] {
+    sources().default_source().sections()
+}
+
+fn sections_help() -> String {
+    let keys: Vec<&str> = section_specs().iter().map(|spec| spec.key).collect();
+    format!("{} | all | none", keys.join(","))
+}
+
+fn sections_default() -> String {
+    default_sections(section_specs())
+}
+
+fn sections_arg(spec: &str) -> Result<String, String> {
+    parse_sections(section_specs(), spec)
+        .map(|_| spec.to_owned())
+        .map_err(|e| e.to_string())
+}
+
+fn selected_sections(spec: &str) -> BTreeSet<String> {
+    parse_sections(section_specs(), spec).expect("validated by clap")
+}
 
 const AFTER_HELP: &str = "\
 Style flags are shortcuts for -s: --paper a4 means -s page.size=a4. When both touch the same
@@ -178,19 +214,12 @@ fn parse_formats(value: &str) -> Result<Formats, String> {
 #[derive(Args, Clone)]
 #[command(next_help_heading = "Content")]
 struct ContentOptions {
-    /// bib,academic,oir,related,notes,supplements | all | none
-    #[arg(long, value_name = "list", value_parser = parse_sections, default_value_t = default_sections_text())]
+    #[arg(long, value_name = "list", value_parser = sections_arg, default_value_t = sections_default(), help = sections_help())]
     sections: String,
 
     /// Leave images out
     #[arg(long = "no-images", action = ArgAction::SetTrue)]
     no_images: bool,
-}
-
-fn parse_sections(spec: &str) -> Result<String, String> {
-    parse_content_keys(spec)
-        .map(|_| spec.to_owned())
-        .map_err(|e| e.to_string())
 }
 
 #[derive(Args, Clone)]
@@ -353,8 +382,7 @@ struct UpdateArgs {
     #[arg(value_name = "entry")]
     entries: Vec<String>,
 
-    /// bib,academic,oir,related,notes,supplements | all | none
-    #[arg(long, value_name = "list", value_parser = parse_sections, default_value_t = default_sections_text(), help_heading = "Content")]
+    #[arg(long, value_name = "list", value_parser = sections_arg, default_value_t = sections_default(), help = sections_help(), help_heading = "Content")]
     sections: String,
 
     #[command(flatten)]
@@ -379,8 +407,7 @@ struct DumpModelOptions {
     #[arg(value_name = "entry")]
     entries: Vec<String>,
 
-    /// bib,academic,oir,related,notes,supplements | all | none
-    #[arg(long, value_name = "list", value_parser = parse_sections, default_value_t = default_sections_text(), help_heading = "Content")]
+    #[arg(long, value_name = "list", value_parser = sections_arg, default_value_t = sections_default(), help = sections_help(), help_heading = "Content")]
     sections: String,
 
     #[command(flatten)]
@@ -579,13 +606,17 @@ fn usage_error(message: impl std::fmt::Display) -> ExitCode {
 
 fn list(opts: &ListOptions) -> ExitCode {
     let dir = opts.library.clone().unwrap_or_else(default_library_dir);
-    let entries = Library::new(&dir).list_entries();
+    let library = Library::new(&dir);
+    let entries: Vec<Held> = sources()
+        .iter()
+        .flat_map(|source| source.held(&library))
+        .collect();
     if entries.is_empty() {
         eprintln!("nothing in the library yet at {}", show_path(&dir));
         return ExitCode::SUCCESS;
     }
     for e in entries {
-        let edition = if e.edition == "live" {
+        let edition = if e.edition.is_empty() {
             String::new()
         } else {
             format!("[{}] ", e.edition)
@@ -595,7 +626,7 @@ fn list(opts: &ListOptions) -> ExitCode {
         } else {
             e.revision.as_str()
         };
-        outln!("{:<28} {:<26} {edition}{}", e.slug, revision, e.title);
+        outln!("{:<28} {:<26} {edition}{}", e.id, revision, e.title);
     }
     ExitCode::SUCCESS
 }
@@ -793,20 +824,20 @@ fn group_entries<'a>(docs: &'a [Doc], merge: Option<&str>) -> Vec<Group<'a>> {
 struct RenderCtx<'a> {
     style: &'a Style,
     fonts: &'a Fonts,
-    sections: &'a BTreeSet<ContentKey>,
+    sections: &'a BTreeSet<String>,
     library: &'a Library,
     cli: &'a BuildArgs,
     dump_typst: bool,
 }
 
 fn walk_entries(
-    source: &mut Source<'_>,
+    net: &mut Net<'_>,
     entries: &[String],
     edition: &str,
     depth: u32,
     opts: &WalkOptions<'_>,
     failures: &mut Vec<(String, String)>,
-    deliver: &mut dyn FnMut(LoadedEntry) -> Result<(), String>,
+    deliver: &mut dyn FnMut(Loaded) -> Result<(), String>,
 ) -> Result<usize, ExitCode> {
     let mut queue: std::collections::VecDeque<(String, u32)> =
         entries.iter().map(|e| (e.clone(), 0)).collect();
@@ -817,8 +848,9 @@ fn walk_entries(
     let batch = entries.len() > 1 || depth > 0;
 
     while let Some((entry, reached_at)) = queue.pop_front() {
-        let target = match normalize_entry(&entry, edition) {
-            Ok(target) => target,
+        let source = sources().for_input(&entry);
+        let work = match source.resolve(&entry, Some(edition)) {
+            Ok(work) => work,
             Err(err) => {
                 if !batch {
                     return Err(usage_error(err));
@@ -827,13 +859,13 @@ fn walk_entries(
                 continue;
             }
         };
-        if !seen.insert(target.url.clone()) {
+        if !seen.insert(work.url.clone()) {
             continue;
         }
-        let name = if target.edition == "live" {
-            target.slug.clone()
+        let name = if work.edition.is_empty() {
+            work.id.clone()
         } else {
-            format!("{} ({})", target.slug, target.edition)
+            format!("{} ({})", work.id, work.edition)
         };
 
         attempted += 1;
@@ -849,7 +881,7 @@ fn walk_entries(
             String::new()
         };
         if !quiet {
-            let verb = opts.verb.word(source, &target);
+            let verb = opts.verb.word(net, &work);
             eprintln!("{counter}{verb} {name}{deeper}");
         }
 
@@ -858,11 +890,11 @@ fn walk_entries(
                 eprintln!("{message}");
             }
         };
-        let loaded = match load_entry(
-            source,
-            &target,
+        let loaded = match source.load(
+            &work,
+            net,
             LoadOptions {
-                content: opts.sections,
+                sections: opts.sections,
                 log: &mut log,
             },
         ) {
@@ -885,15 +917,15 @@ fn walk_entries(
                     eprintln!("  {message}");
                 }
             };
-            let pass = fetch_figures(&loaded.doc, source, &mut note);
+            let pass = fetch_figures(&loaded.doc, net, &mut note);
             if pass.fetched > 0 && !quiet {
                 eprintln!("  {} figures fetched", pass.fetched);
             }
         }
 
         if reached_at < depth {
-            for url in related_entry_urls(&loaded.doc) {
-                queue.push_back((url, reached_at + 1));
+            for input in source.related(&loaded.doc) {
+                queue.push_back((input, reached_at + 1));
             }
         }
         match deliver(loaded) {
@@ -920,12 +952,12 @@ enum Verb {
 }
 
 impl Verb {
-    fn word(self, source: &Source<'_>, target: &EntryTarget) -> &'static str {
+    fn word(self, net: &Net<'_>, work: &WorkRef) -> &'static str {
         match self {
             Verb::Checking => "checking",
             Verb::Reading => "reading",
             Verb::Either => {
-                if !source.refresh && source.library.has(&target.url).unwrap_or(false) {
+                if !net.refresh && net.library.has(&work.url).unwrap_or(false) {
                     "reading"
                 } else {
                     "fetching"
@@ -937,7 +969,7 @@ impl Verb {
 
 struct WalkOptions<'a> {
     verb: Verb,
-    sections: &'a BTreeSet<ContentKey>,
+    sections: &'a BTreeSet<String>,
     images: bool,
     quiet: bool,
 }
@@ -978,8 +1010,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     if entries.is_empty() {
         return usage_error("no entry given");
     }
-    let sections: BTreeSet<ContentKey> =
-        parse_content_keys(&cli.content.sections).expect("validated by clap");
+    let sections = selected_sections(&cli.content.sections);
 
     if let Err(code) = targets_for(&entries, &cli.fetching.edition) {
         return code;
@@ -991,7 +1022,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
             .set
             .iter()
             .any(|s| s.trim().starts_with("notes.style="));
-    if notes_set && !sections.contains(&ContentKey::Notes) && !quiet {
+    if notes_set && !sections.contains("notes") && !quiet {
         eprintln!(
             "  --notes has no effect while --sections leaves out notes: the notes page is not fetched and the markers stay links"
         );
@@ -1028,7 +1059,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     }
 
     let mut fetcher = (!dump_typst).then(|| cli.network.fetcher(&cli.verbosity));
-    let mut source = Source {
+    let mut net = Net {
         library: &library,
         fetcher: fetcher.as_mut(),
         refresh: cli.network.refresh && !dump_typst,
@@ -1058,7 +1089,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     let built = if let Some(merge) = cli.output.merge.as_deref() {
         let mut docs: Vec<Doc> = Vec::new();
         let read = match walk_entries(
-            &mut source,
+            &mut net,
             &entries,
             &cli.fetching.edition,
             cli.follow_related,
@@ -1084,7 +1115,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     } else {
         let mut built = 0usize;
         let walked = walk_entries(
-            &mut source,
+            &mut net,
             &entries,
             &cli.fetching.edition,
             cli.follow_related,
@@ -1146,9 +1177,9 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
             .collect()
     };
     let cover_template = cover_template(ctx.style)?;
-    let sections = key_names(ctx.sections);
+    let sections = ctx.sections;
     let options = EmitOptions {
-        sections: &sections,
+        sections,
         images: &images,
         cover_template: cover_template.as_deref(),
         volume: group.volume.as_ref(),
@@ -1168,7 +1199,7 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
         build_epub_file(
             group,
             ctx.style,
-            &sections,
+            sections,
             &images,
             ctx.fonts,
             cli,
@@ -1238,7 +1269,7 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
         build_epub_file(
             group,
             ctx.style,
-            &sections,
+            sections,
             &images,
             ctx.fonts,
             cli,
@@ -1261,8 +1292,7 @@ fn fetch_command(opts: &FetchCommandArgs) -> ExitCode {
     if entries.is_empty() {
         return usage_error("no entry given");
     }
-    let sections: BTreeSet<ContentKey> =
-        parse_content_keys(&opts.content.sections).expect("validated by clap");
+    let sections = selected_sections(&opts.content.sections);
     if let Err(code) = targets_for(&entries, &opts.fetching.edition) {
         return code;
     }
@@ -1277,7 +1307,7 @@ fn fetch_command(opts: &FetchCommandArgs) -> ExitCode {
     }
 
     let mut fetcher = opts.network.fetcher(&opts.verbosity);
-    let mut source = Source::fetching(&library, &mut fetcher).with_refresh(opts.network.refresh);
+    let mut net = Net::fetching(&library, &mut fetcher).with_refresh(opts.network.refresh);
     let walk = WalkOptions {
         verb: Verb::Either,
         sections: &sections,
@@ -1286,7 +1316,7 @@ fn fetch_command(opts: &FetchCommandArgs) -> ExitCode {
     };
     let mut failures: Vec<(String, String)> = Vec::new();
     let held = match walk_entries(
-        &mut source,
+        &mut net,
         &entries,
         &opts.fetching.edition,
         opts.follow_related,
@@ -1297,7 +1327,7 @@ fn fetch_command(opts: &FetchCommandArgs) -> ExitCode {
         Ok(held) => held,
         Err(code) => return code,
     };
-    let requests = source.fetcher.as_ref().map_or(0, |f| f.requests());
+    let requests = net.fetcher.as_ref().map_or(0, |f| f.requests());
     if !quiet {
         eprintln!(
             "{held} {} in {}, {requests} requests",
@@ -1321,9 +1351,11 @@ fn update_command(opts: &UpdateArgs) -> ExitCode {
         Err(code) => return code,
     };
     if entries.is_empty() {
-        let held = library.list_entries();
-        let live: Vec<&typesep_net::library::LibraryEntry> =
-            held.iter().filter(|e| e.edition == "live").collect();
+        let held: Vec<Held> = sources()
+            .iter()
+            .flat_map(|source| source.held(&library))
+            .collect();
+        let live: Vec<&Held> = held.iter().filter(|e| e.edition.is_empty()).collect();
         if live.len() < held.len() && !quiet {
             eprintln!(
                 "  {} archived entries in the library are left alone; name them with --edition to check them",
@@ -1340,16 +1372,15 @@ fn update_command(opts: &UpdateArgs) -> ExitCode {
                 entry_word(live.len())
             );
         }
-        entries = live.iter().map(|e| e.slug.clone()).collect();
+        entries = live.iter().map(|e| e.id.clone()).collect();
     }
-    let sections: BTreeSet<ContentKey> =
-        parse_content_keys(&opts.sections).expect("validated by clap");
+    let sections = selected_sections(&opts.sections);
     if let Err(code) = targets_for(&entries, &opts.fetching.edition) {
         return code;
     }
 
     let mut fetcher = opts.network.fetcher(&opts.verbosity);
-    let mut source = Source::fetching(&library, &mut fetcher)
+    let mut net = Net::fetching(&library, &mut fetcher)
         .with_refresh(opts.network.refresh)
         .with_check_updates(true);
     let walk = WalkOptions {
@@ -1361,7 +1392,7 @@ fn update_command(opts: &UpdateArgs) -> ExitCode {
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut changed = 0usize;
     let checked = match walk_entries(
-        &mut source,
+        &mut net,
         &entries,
         &opts.fetching.edition,
         0,
@@ -1456,26 +1487,29 @@ fn say_all(warnings: &[String], quiet: bool) {
 
 fn read_entries(
     library: &Library,
-    targets: &[EntryTarget],
-    sections: &BTreeSet<ContentKey>,
+    works: &[WorkRef],
+    sections: &BTreeSet<String>,
     quiet: bool,
 ) -> Result<Vec<Doc>, ExitCode> {
     let mut docs = Vec::new();
-    let mut source = Source::offline(library);
-    for target in targets {
+    let mut net = Net::offline(library);
+    for work in works {
         if !quiet {
-            eprintln!("reading {}", target.slug);
+            eprintln!("reading {}", work.id);
         }
         let mut log = |message: &str| {
             if !quiet {
                 eprintln!("{message}");
             }
         };
-        match load_entry(
-            &mut source,
-            target,
+        let source = sources()
+            .get(work.source)
+            .expect("a work comes from a source the registry holds");
+        match source.load(
+            work,
+            &mut net,
             LoadOptions {
-                content: sections,
+                sections,
                 log: &mut log,
             },
         ) {
@@ -1486,23 +1520,22 @@ fn read_entries(
     Ok(docs)
 }
 
-fn targets_for(entries: &[String], edition: &str) -> Result<Vec<EntryTarget>, ExitCode> {
-    let mut targets = Vec::new();
+fn targets_for(entries: &[String], edition: &str) -> Result<Vec<WorkRef>, ExitCode> {
+    let mut works = Vec::new();
     for entry in entries {
-        match normalize_entry(entry, edition) {
-            Ok(target) => targets.push(target),
+        match sources().for_input(entry).resolve(entry, Some(edition)) {
+            Ok(work) => works.push(work),
             Err(err) => return Err(usage_error(err)),
         }
     }
-    Ok(targets)
+    Ok(works)
 }
 
 fn dump_model(opts: &DumpModelOptions) -> ExitCode {
     if opts.entries.is_empty() {
         return usage_error("no entry given");
     }
-    let sections: BTreeSet<ContentKey> =
-        parse_content_keys(&opts.sections).expect("validated by clap");
+    let sections = selected_sections(&opts.sections);
     let targets = match targets_for(&opts.entries, &opts.fetching.edition) {
         Ok(targets) => targets,
         Err(code) => return code,
@@ -1557,6 +1590,7 @@ fn man_page() -> ExitCode {
 }
 
 fn command() -> clap::Command {
+    sources();
     with_shorthands(Cli::command())
         .mut_subcommand("build", with_shorthands)
         .mut_subcommand("style", with_shorthands)
@@ -1605,6 +1639,7 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use typesep_net::source::Source;
 
     #[test]
     fn the_command_line_is_well_formed() {
@@ -1649,19 +1684,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let library = Library::new(dir.path());
         library.init().unwrap();
-        let held = normalize_entry("turing-machine", "live").unwrap();
+        let held = Sep.resolve("turing-machine", Some("live")).unwrap();
         library
             .write(&held.url, b"<html></html>", None, None)
             .unwrap();
-        let absent = normalize_entry("no-such-entry", "live").unwrap();
+        let absent = Sep.resolve("no-such-entry", Some("live")).unwrap();
 
-        let source = Source::offline(&library);
-        assert_eq!(Verb::Either.word(&source, &held), "reading");
-        assert_eq!(Verb::Either.word(&source, &absent), "fetching");
-        assert_eq!(Verb::Reading.word(&source, &absent), "reading");
-        assert_eq!(Verb::Checking.word(&source, &held), "checking");
+        let net = Net::offline(&library);
+        assert_eq!(Verb::Either.word(&net, &held), "reading");
+        assert_eq!(Verb::Either.word(&net, &absent), "fetching");
+        assert_eq!(Verb::Reading.word(&net, &absent), "reading");
+        assert_eq!(Verb::Checking.word(&net, &held), "checking");
 
-        let refreshed = Source::offline(&library).with_refresh(true);
+        let refreshed = Net::offline(&library).with_refresh(true);
         assert_eq!(Verb::Either.word(&refreshed, &held), "fetching");
     }
 
@@ -1847,7 +1882,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let library = Library::new(dir.path());
         library.init().unwrap();
-        let mut source = Source::offline(&library);
+        let mut net = Net::offline(&library);
         let sections = BTreeSet::new();
         let walk = WalkOptions {
             verb: Verb::Reading,
@@ -1857,7 +1892,7 @@ mod tests {
         };
         let mut failures = Vec::new();
         let walked = walk_entries(
-            &mut source,
+            &mut net,
             &["aaa-x".to_owned(), "bbb-y".to_owned()],
             "live",
             0,
@@ -1874,7 +1909,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let library = Library::new(dir.path());
         library.init().unwrap();
-        let mut source = Source::offline(&library);
+        let mut net = Net::offline(&library);
         let sections = BTreeSet::new();
         let walk = WalkOptions {
             verb: Verb::Reading,
@@ -1889,7 +1924,7 @@ mod tests {
             "https://plato.stanford.edu/entries/kant/".to_owned(),
         ];
         let walked = walk_entries(
-            &mut source,
+            &mut net,
             &entries,
             "live",
             0,
