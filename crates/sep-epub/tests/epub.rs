@@ -326,6 +326,50 @@ fn an_svg_image_by_reference_does_not_mark_its_document_as_svg() {
 }
 
 #[test]
+fn every_document_is_in_the_language_its_metadata_names() {
+    let mut entry = doc(vec![para("Die Welt ist alles, was der Fall ist.")]);
+    entry.meta.lang = "de".into();
+    let style = style();
+    let images = BTreeMap::new();
+    let sections = every_section();
+    let fonts = Fonts::embedded();
+    let epub = build_epub(
+        &[&entry],
+        &style,
+        EpubOptions {
+            sections: &sections,
+            images: &images,
+            volume: None,
+            fonts: &fonts,
+        },
+    )
+    .unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(epub.bytes)).unwrap();
+    let mut read = |name: &str| {
+        let mut text = String::new();
+        archive
+            .by_name(name)
+            .unwrap()
+            .read_to_string(&mut text)
+            .unwrap();
+        text
+    };
+    let opf = read("OEBPS/content.opf");
+    assert!(
+        opf.contains(r#"version="3.0" unique-identifier="pub-id" xml:lang="de">"#),
+        "{opf}"
+    );
+    assert!(opf.contains("<dc:language>de</dc:language>"), "{opf}");
+    for name in ["OEBPS/entry-1.xhtml", "OEBPS/nav.xhtml"] {
+        let page = read(name);
+        assert!(
+            page.contains(r#" lang="de" xml:lang="de">"#),
+            "{name}: {page}"
+        );
+    }
+}
+
+#[test]
 fn characters_xml_forbids_are_dropped() {
     assert_eq!(esc("a\u{1}b\u{8}c\u{1f}d"), "abcd");
     assert_eq!(esc("\u{fffe}x\u{ffff}"), "x");

@@ -51,6 +51,7 @@ pub fn content_opf(
     let merged = docs.len() > 1;
     let volume = volume.unwrap_or(first);
     let title = &volume.title;
+    let lang = esc(&volume.lang);
     // A volume of several entries is the publisher's; one entry, even typeset as a volume,
     // is its authors'. A single entry's statement is a line on a page and needs its stop
     // here; a volume's is a sentence already.
@@ -123,11 +124,11 @@ pub fn content_opf(
 
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id" xml:lang="en">
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id" xml:lang="{lang}">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
 <dc:identifier id="pub-id">urn:typesep:{}</dc:identifier>
 <dc:title>{}</dc:title>
-<dc:language>en</dc:language>
+<dc:language>{lang}</dc:language>
 <dc:creator>{}</dc:creator>
 <dc:source>{}</dc:source>{date}
 <dc:rights>{}</dc:rights>

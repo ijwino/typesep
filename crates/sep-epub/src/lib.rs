@@ -91,7 +91,10 @@ pub fn build_epub(
         ctx.has_math = false;
         let name = format!("entry-{}.xhtml", index + 1);
         let body = entry_html(doc, &mut ctx, options.sections);
-        documents.push((name.clone(), document_xhtml(&doc.meta.title, &body)));
+        documents.push((
+            name.clone(),
+            document_xhtml(&doc.meta.title, &doc.meta.lang, &body),
+        ));
         let properties = if ctx.has_math { "mathml" } else { "" }.to_owned();
         chapters.push(Chapter {
             name: name.clone(),
@@ -160,6 +163,7 @@ pub fn build_epub(
             "OEBPS/nav.xhtml",
             document_xhtml(
                 "Contents",
+                &options.volume.unwrap_or(&docs[0].meta).lang,
                 &format!("<nav epub:type=\"toc\" id=\"toc\"><h1>Contents</h1>{nav}</nav>"),
             )
             .as_bytes(),

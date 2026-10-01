@@ -454,10 +454,11 @@ fn block_html(node: &Block, ctx: &mut Ctx) -> String {
     }
 }
 
-pub fn document_xhtml(title: &str, body: &str) -> String {
+pub fn document_xhtml(title: &str, lang: &str, body: &str) -> String {
+    let lang = esc(lang);
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="en" xml:lang="en">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="{lang}" xml:lang="{lang}">
 <head><meta charset="utf-8"/><title>{}</title>
 <link rel="stylesheet" type="text/css" href="style.css"/></head>
 <body>{body}</body></html>"#,
