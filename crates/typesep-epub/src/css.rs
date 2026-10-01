@@ -1,4 +1,25 @@
+use std::collections::BTreeSet;
+
 use typesep_style::View;
+
+/// A rule only some documents need, for a construct the base stylesheet does not style. A
+/// document gets the rules for the constructs it uses and no others, so one without any of
+/// them gets the stylesheet it always had.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Construct {
+    Right,
+    Indent(u8),
+    Spaced,
+    SmallCaps,
+    Overline,
+    Dashed,
+    MarginNote,
+    OutlineOnly,
+    Aside,
+    Columns,
+    Verse,
+    Edges,
+}
 
 pub fn face_css(face: &str) -> &'static str {
     match face {
@@ -126,4 +147,46 @@ pub fn stylesheet(view: &View) -> String {
         "a.noteref{text-decoration:none;}".to_owned(),
     ]);
     lines.join("\n")
+}
+
+pub fn construct_rules(view: &View, used: &BTreeSet<Construct>) -> Vec<String> {
+    let mut lines = Vec::new();
+    for construct in used {
+        match construct {
+            Construct::Right => lines.push("p.right{text-align:right;text-indent:0;}".to_owned()),
+            Construct::Indent(em) => {
+                lines.push(format!("p.indent-{em}{{margin-left:{em}em;text-indent:0;}}"))
+            }
+            Construct::Spaced => lines.push("span.spaced{letter-spacing:0.2em;}".to_owned()),
+            Construct::SmallCaps => {
+                lines.push("span.smallcaps{font-variant:small-caps;}".to_owned())
+            }
+            Construct::Overline => {
+                lines.push("span.overline{text-decoration-line:overline;}".to_owned())
+            }
+            Construct::Dashed => lines.push(".dashed{text-decoration-style:dashed;}".to_owned()),
+            Construct::MarginNote => lines.push(format!(
+                "span.margin-note{{font-size:{}em;}}",
+                size(view, "blocks.footnote.size")
+            )),
+            Construct::OutlineOnly => lines.push(".outline-only{display:none;}".to_owned()),
+            Construct::Aside => lines.extend([
+                "div.aside{border:1px solid #999;padding:0.6em 1em;margin:1em 0;}".to_owned(),
+                "div.aside>p:first-child{text-indent:0;}".to_owned(),
+            ]),
+            Construct::Columns => lines.extend([
+                "div.columns{display:flex;flex-wrap:wrap;gap:0 1.5em;margin:1em 0;}".to_owned(),
+                "div.column{flex:1 1 12em;min-width:0;}".to_owned(),
+            ]),
+            Construct::Verse => lines.extend([
+                "div.verse{margin:1em 0;}".to_owned(),
+                "div.verse>p{margin-top:0;margin-bottom:0;padding-left:1em;text-indent:-1em;text-align:left;}"
+                    .to_owned(),
+            ]),
+            Construct::Edges => lines.extend(["top", "right", "bottom", "left"].map(|side| {
+                format!("td.edge-{side},th.edge-{side}{{border-{side}:1px solid;}}")
+            })),
+        }
+    }
+    lines
 }

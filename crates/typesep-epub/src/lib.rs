@@ -106,6 +106,11 @@ pub fn build_epub(
     warnings.extend(std::mem::take(&mut ctx.warnings));
 
     let mut stylesheet = css::stylesheet(&view);
+    let constructs = css::construct_rules(&view, &ctx.constructs);
+    if !constructs.is_empty() {
+        stylesheet.push('\n');
+        stylesheet.push_str(&constructs.join("\n"));
+    }
     if !math_css.is_empty() {
         stylesheet.push_str("\n\n/* Typst's MathML rules, from its HTML export */\n");
         stylesheet.push_str(&math_css);

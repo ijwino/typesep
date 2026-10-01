@@ -3,15 +3,15 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use typesep_model::{
-    Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, ListNumbering, Meta, NoteRef,
-    NoteTable, Section, Table, TableCell, TocItem,
+    Align, Attachment, AttachmentKind, Block, Decoration, Doc, Figure, Inline, List, ListNumbering,
+    Meta, NoteRef, NoteTable, Rules, Section, Table, TableCell, TocItem, VerseLine,
 };
 use typesep_style::Style;
 
 use crate::escape::{escape_code, escape_string, escape_text, guard_line_start, safe_id};
 use crate::fonts::Fonts;
 use crate::math::Converter;
-use crate::preamble::{PreambleInput, build_preamble};
+use crate::preamble::{Helper, PreambleInput, build_preamble};
 use crate::style::typst_pt;
 use crate::text::retrieval_dates;
 use crate::world::FIGURES_PREFIX;
@@ -86,6 +86,7 @@ struct Ctx<'a> {
     notes_style: String,
     entry_index: usize,
     long_notes: bool,
+    helpers: BTreeSet<Helper>,
 }
 
 impl<'a> Ctx<'a> {
@@ -122,6 +123,7 @@ impl<'a> Ctx<'a> {
             long_notes: notes_style == "footnote"
                 && crate::preamble::note_max_height_pt(view) > 0.0,
             notes_style,
+            helpers: BTreeSet::new(),
         }
     }
 
@@ -252,9 +254,21 @@ fn walk_block(block: &Block, visit: &mut impl FnMut(&Inline)) {
                 walk_inlines(label, visit);
             }
         }
-        Block::Blockquote { children } => {
+        Block::Blockquote { children }
+        | Block::Remark { children, .. }
+        | Block::Aside { children } => {
             for block in children {
                 walk_block(block, visit);
+            }
+        }
+        Block::Columns { columns } => {
+            for block in columns.iter().flatten() {
+                walk_block(block, visit);
+            }
+        }
+        Block::Verse { lines } => {
+            for line in lines {
+                walk_inlines(&line.children, visit);
             }
         }
         Block::Table(table) => {
@@ -285,7 +299,11 @@ fn walk_inlines(nodes: &[Inline], visit: &mut impl FnMut(&Inline)) {
             | Inline::Sub { children }
             | Inline::Sup { children }
             | Inline::Code { children }
-            | Inline::Link { children, .. } => walk_inlines(children, visit),
+            | Inline::Link { children, .. }
+            | Inline::Spaced { children }
+            | Inline::SmallCaps { children }
+            | Inline::Decorated { children, .. }
+            | Inline::MarginNote { children } => walk_inlines(children, visit),
             Inline::Figure(figure) => {
                 if let Some(caption) = &figure.caption {
                     walk_inlines(caption, visit);
@@ -309,7 +327,11 @@ fn plain_text(nodes: &[Inline]) -> String {
             | Inline::Sub { children }
             | Inline::Sup { children }
             | Inline::Code { children }
-            | Inline::Link { children, .. } => out.push_str(&plain_text(children)),
+            | Inline::Link { children, .. }
+            | Inline::Spaced { children }
+            | Inline::SmallCaps { children }
+            | Inline::Decorated { children, .. }
+            | Inline::MarginNote { children } => out.push_str(&plain_text(children)),
         }
     }
     out
@@ -350,6 +372,24 @@ fn hoist(nodes: &[Inline], ids: &mut Vec<String>) -> Vec<Inline> {
                 internal: *internal,
                 children: hoist(children, ids),
             }),
+            Inline::Spaced { children } => out.push(Inline::Spaced {
+                children: hoist(children, ids),
+            }),
+            Inline::SmallCaps { children } => out.push(Inline::SmallCaps {
+                children: hoist(children, ids),
+            }),
+            Inline::Decorated {
+                line,
+                dashed,
+                children,
+            } => out.push(Inline::Decorated {
+                line: *line,
+                dashed: *dashed,
+                children: hoist(children, ids),
+            }),
+            Inline::MarginNote { children } => out.push(Inline::MarginNote {
+                children: hoist(children, ids),
+            }),
             other => out.push(other.clone()),
         }
     }
@@ -385,17 +425,20 @@ fn block(node: &Block, ctx: &mut Ctx<'_>) -> Option<String> {
             level,
             id,
             children,
-        } => Some(heading(*level, id.as_deref(), children, ctx)),
-        Block::Para { children, align } => {
-            let text = inlines(children, ctx);
-            if text.trim().is_empty() {
-                return None;
+            outline_only,
+        } => {
+            let markup = heading(*level, id.as_deref(), children, ctx);
+            if !outline_only {
+                return Some(markup);
             }
-            Some(match align {
-                Some(_) => format!("#align(center){}", content(&text)),
-                None => guard_line_start(&text),
-            })
+            ctx.helpers.insert(Helper::OutlineOnly);
+            Some(format!("#fs-outline-only[{markup}]"))
         }
+        Block::Para {
+            children,
+            align,
+            indent_em,
+        } => para(children, *align, *indent_em, String::new(), ctx),
         Block::Pre { children } => Some(pre(children, ctx)),
         Block::List(list) => list_block(list, ctx),
         Block::Blockquote { children } => {
@@ -409,7 +452,118 @@ fn block(node: &Block, ctx: &mut Ctx<'_>) -> Option<String> {
             let anchor = ctx.anchor(id);
             (!anchor.is_empty()).then_some(anchor)
         }
+        Block::Remark {
+            number,
+            id,
+            children,
+        } => remark(number, id.as_deref(), children, ctx),
+        Block::Aside { children } => {
+            let body = joined(children, ctx);
+            if body.trim().is_empty() {
+                return None;
+            }
+            ctx.helpers.insert(Helper::Aside);
+            Some(format!("#fs-aside[\n{}\n]", guard_line_start(&body)))
+        }
+        Block::Columns { columns } => {
+            if columns.is_empty() {
+                return None;
+            }
+            ctx.helpers.insert(Helper::Columns);
+            let columns: Vec<String> = columns
+                .iter()
+                .map(|blocks| content(&joined(blocks, ctx)))
+                .collect();
+            Some(format!("#fs-columns({})", columns.join(", ")))
+        }
+        Block::Verse { lines } => verse(lines, ctx),
     }
+}
+
+/// A paragraph, after `lead` (markup that opens it, as a remark's number) when there is one.
+/// An indent sets every line in, the first as well.
+fn para(
+    children: &[Inline],
+    align: Option<Align>,
+    indent_em: u8,
+    lead: String,
+    ctx: &mut Ctx<'_>,
+) -> Option<String> {
+    let text = inlines(children, ctx);
+    let text = match (lead.is_empty(), text.trim().is_empty()) {
+        (true, _) => text,
+        (false, true) => lead,
+        (false, false) => format!("{lead} {text}"),
+    };
+    if text.trim().is_empty() {
+        return None;
+    }
+    let body = if indent_em > 0 {
+        format!(
+            "#par(first-line-indent: (amount: {indent_em}em, all: true), hanging-indent: {indent_em}em){}",
+            content(&text)
+        )
+    } else {
+        text
+    };
+    Some(match align {
+        Some(Align::Center) => format!("#align(center){}", content(&body)),
+        Some(Align::Right) => format!("#align(right){}", content(&body)),
+        None => guard_line_start(&body),
+    })
+}
+
+/// A remark: its number in bold, then a space, at the start of its first paragraph, and the
+/// place its id names right before the number. A remark that does not open with a paragraph
+/// has its number on a line of its own.
+fn remark(number: &str, id: Option<&str>, children: &[Block], ctx: &mut Ctx<'_>) -> Option<String> {
+    let mut lead = id.map(|id| ctx.anchor(id)).unwrap_or_default();
+    if !number.is_empty() {
+        ctx.helpers.insert(Helper::RemarkNumber);
+        lead.push_str(&format!(
+            "#fs-remark-number{}",
+            content(&escape_text(number))
+        ));
+    }
+    let mut out = Vec::new();
+    let mut rest = children;
+    if let Some((
+        Block::Para {
+            children,
+            align,
+            indent_em,
+        },
+        after,
+    )) = children.split_first()
+    {
+        out.extend(para(children, *align, *indent_em, lead, ctx));
+        rest = after;
+    } else if !lead.is_empty() {
+        out.push(guard_line_start(&lead));
+    }
+    out.extend(render_blocks(rest, ctx));
+    (!out.is_empty()).then(|| out.join("\n\n"))
+}
+
+/// Verse, a line to a block, each set in by its indent; a line that runs over hangs.
+fn verse(lines: &[VerseLine], ctx: &mut Ctx<'_>) -> Option<String> {
+    if lines.is_empty() {
+        return None;
+    }
+    ctx.helpers.insert(Helper::Verse);
+    let lines: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            let text = inlines(&line.children, ctx);
+            let text = if text.trim().is_empty() {
+                "~".to_owned()
+            } else {
+                text
+            };
+            format!("({}, {})", line.indent_em, content(&text))
+        })
+        .collect();
+    Some(format!("#fs-verse({})", lines.join(", ")))
 }
 
 fn heading(level: u8, id: Option<&str>, children: &[Inline], ctx: &mut Ctx<'_>) -> String {
@@ -612,6 +766,11 @@ fn table_block(table: &Table, ctx: &mut Ctx<'_>) -> Option<String> {
             if rowspan > 1 {
                 args.push(format!("rowspan: {rowspan}"));
             }
+            if table.rules == Some(Rules::Cells)
+                && let Some(stroke) = cell_stroke(cell)
+            {
+                args.push(stroke);
+            }
             if args.is_empty() {
                 emitted.push(content(&body));
             } else {
@@ -635,12 +794,36 @@ fn table_block(table: &Table, ctx: &mut Ctx<'_>) -> Option<String> {
         .filter(|c| !c.is_empty())
         .map(|c| format!("caption: {}, ", content(&inlines(c, ctx))))
         .unwrap_or_default();
+    if table.rules.is_some() {
+        ctx.helpers.insert(Helper::PlainTable);
+        return Some(format!(
+            "#fs-table-plain({caption}columns: {}, {})",
+            kept.len(),
+            emitted.join(", ")
+        ));
+    }
     Some(format!(
         "#fs-table({caption}columns: {}, rows: {}, header-rows: {header_rows}, {})",
         kept.len(),
         grid.len(),
         emitted.join(", ")
     ))
+}
+
+/// The rules a cell draws on its own sides, in a table whose rules come from its cells.
+fn cell_stroke(cell: &TableCell) -> Option<String> {
+    let edges = cell.edges?;
+    let sides: Vec<String> = [
+        ("top", edges.top),
+        ("right", edges.right),
+        ("bottom", edges.bottom),
+        ("left", edges.left),
+    ]
+    .into_iter()
+    .filter(|(_, ruled)| *ruled)
+    .map(|(side, _)| format!("{side}: 0.4pt"))
+    .collect();
+    (!sides.is_empty()).then(|| format!("stroke: ({})", sides.join(", ")))
 }
 
 fn figure_markup(figure: &Figure, ctx: &mut Ctx<'_>) -> Option<String> {
@@ -723,9 +906,40 @@ fn inlines(nodes: &[Inline], ctx: &mut Ctx<'_>) -> String {
     let pieces: Vec<String> = nodes
         .iter()
         .enumerate()
-        .map(|(i, node)| inline_node(node, ctx, i == last))
+        .map(|(i, node)| match node {
+            Inline::MarginNote { children } => {
+                let space = match nodes.get(i + 1) {
+                    Some(Inline::Text { value }) => value.starts_with(collapsible),
+                    _ => false,
+                };
+                margin_note(children, space, ctx)
+            }
+            Inline::Text { value }
+                if !ctx.pre && i > 0 && matches!(nodes[i - 1], Inline::MarginNote { .. }) =>
+            {
+                escape_text(value.trim_start_matches(collapsible))
+            }
+            _ => inline_node(node, ctx, i == last),
+        })
         .collect();
     join_inline(pieces.into_iter())
+}
+
+/// Whitespace that the text collapses into one space, which a no-break space is not.
+fn collapsible(c: char) -> bool {
+    c.is_whitespace() && c != '\u{a0}' && c != '\u{202f}'
+}
+
+/// A note in the margin takes no room in its line, so the space that follows it in the text
+/// is the note's to give back when the margin is too narrow and it is set in the line.
+fn margin_note(children: &[Inline], space: bool, ctx: &mut Ctx<'_>) -> String {
+    let text = inlines(children, ctx);
+    if text.trim().is_empty() {
+        return String::new();
+    }
+    ctx.helpers.insert(Helper::MarginNote);
+    let space = if space { "(space: true)" } else { "" };
+    format!("#fs-margin-note{space}{}", content(&text))
 }
 
 fn code_inlines(nodes: &[Inline], ctx: &mut Ctx<'_>) -> String {
@@ -783,6 +997,31 @@ fn inline_node(node: &Inline, ctx: &mut Ctx<'_>, is_last: bool) -> String {
             internal,
             children,
         } => link(href, *internal, children, ctx),
+        Inline::Spaced { children } => {
+            ctx.helpers.insert(Helper::Spaced);
+            format!("#fs-spaced{}", content(&inlines(children, ctx)))
+        }
+        Inline::SmallCaps { children } => {
+            format!("#smallcaps{}", content(&inlines(children, ctx)))
+        }
+        Inline::Decorated {
+            line,
+            dashed,
+            children,
+        } => {
+            let function = match line {
+                Decoration::Under => "underline",
+                Decoration::Over => "overline",
+                Decoration::Strike => "strike",
+            };
+            let stroke = if *dashed {
+                "(stroke: (dash: \"dashed\"))"
+            } else {
+                ""
+            };
+            format!("#{function}{stroke}{}", content(&inlines(children, ctx)))
+        }
+        Inline::MarginNote { children } => margin_note(children, false, ctx),
     }
 }
 
@@ -1326,6 +1565,7 @@ pub fn emit_document(docs: &[&Doc], style: &Style, opts: EmitOptions<'_>) -> Ren
         edition: meta.origin.edition_label.clone(),
         date: retrieval_dates(&metas),
         subject: meta.origin.publisher.clone(),
+        helpers: std::mem::take(&mut ctx.helpers),
     };
     let (preamble, mut warnings) = build_preamble(&view, &input, opts.fonts);
     warnings.extend(ctx.warnings);

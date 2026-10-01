@@ -631,6 +631,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
                 caption: None,
                 id: None,
                 inline: None,
+                ebook_src: None,
             }));
         doc.body
             .push(typesep_model::Block::Figure(typesep_model::Figure {
@@ -639,6 +640,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
                 caption: None,
                 id: None,
                 inline: None,
+                ebook_src: None,
             }));
 
         let mut harness = typesep_net::fetch::testing::Harness::new(vec![
@@ -693,6 +695,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
                     caption: None,
                     id: None,
                     inline: None,
+                    ebook_src: None,
                 }));
         }
 

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use crate::colors::color_expr;
@@ -15,6 +16,23 @@ pub struct PreambleInput {
     pub edition: String,
     pub date: String,
     pub subject: String,
+    /// The helpers the document's own constructs need, which the preamble defines after the
+    /// ones every document has.
+    pub helpers: BTreeSet<Helper>,
+}
+
+/// A helper only some documents need. Each is defined only when the document uses its
+/// construct, so a document without any of them gets the preamble it always had.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Helper {
+    Spaced,
+    MarginNote,
+    OutlineOnly,
+    RemarkNumber,
+    Aside,
+    Columns,
+    Verse,
+    PlainTable,
 }
 
 pub struct Emitter {
@@ -797,6 +815,46 @@ pub const EMITTERS: &[Emitter] = &[
     },
 ];
 
+/// The definition of `helper`. The margin note reads the page geometry from the style, so
+/// it knows which margin is on the left of the page it lands on, and which column it is in.
+/// It is set in the margin of its column's side of the page, level with its line, and in
+/// the line instead when it is wider than that margin; `space` is the space that followed
+/// it in the text, which it gives back only there.
+fn helper_definition(view: &View<'_>, helper: Helper) -> String {
+    let around = gap(view, view.body() * 0.5);
+    match helper {
+        Helper::Spaced => "#let fs-spaced(body) = text(tracking: 0.2em, body)".to_owned(),
+        Helper::MarginNote => {
+            let (width, _) = view.paper_pt();
+            let inner = view.pt("page.margins.inner") + view.pt("page.bindingOffset");
+            let outer = view.pt("page.margins.outer");
+            format!(
+                "#let fs-margin-note(body, space: false) = context {{\n  set text(size: fs-note-size)\n  let at = here().position()\n  let (left-margin, right-margin) = if {twoside} and calc.even(at.page) {{ ({outer}, {inner}) }} else {{ ({inner}, {outer}) }}\n  let beside-right = {columns} > 1 and at.x > {width} / 2\n  let gap = 0.6em.to-absolute()\n  let room = (if beside-right {{ right-margin }} else {{ left-margin }}) - 2 * gap\n  if measure(body).width > room {{ if space {{ body + [ ] }} else {{ body }} }} else if beside-right {{\n    box(width: 0pt, place(top + left, dx: {width} - right-margin + gap - at.x, dy: -1em, body))\n  }} else {{\n    box(width: 0pt, place(top + right, dx: left-margin - gap - at.x, dy: -1em, body))\n  }}\n}}",
+                twoside = view.bool("page.twoside"),
+                columns = view.int("page.columns"),
+                width = typst_pt(width),
+                inner = typst_pt(inner),
+                outer = typst_pt(outer),
+            )
+        }
+        Helper::OutlineOnly => {
+            "#let fs-outline-only(body) = { show heading: none; body }".to_owned()
+        }
+        Helper::RemarkNumber => "#let fs-remark-number(number) = strong(number)".to_owned(),
+        Helper::Aside => format!(
+            "#let fs-aside(body) = block(above: {around}, below: {around}, width: 100%, inset: (x: 1em, y: 0.8em), stroke: 0.5pt + luma(60%), body)"
+        ),
+        Helper::Columns => format!(
+            "#let fs-columns(..columns) = block(above: {around}, below: {around}, width: 100%, grid(columns: (1fr,) * columns.pos().len(), column-gutter: 1.5em, ..columns))"
+        ),
+        Helper::Verse => format!(
+            "#let fs-verse(..lines) = block(above: {around}, below: {around}, width: 100%, {{\n  set par(first-line-indent: 0pt, hanging-indent: 1em, justify: false)\n  for (indent, body) in lines.pos() {{ block(above: {line}, below: {line}, inset: (left: indent * 1em), par(body)) }}\n}})",
+            line = gap(view, 0.0)
+        ),
+        Helper::PlainTable => "#let fs-table-plain(caption: none, columns: 1, ..cells) = align(center, block(width: auto)[\n  #if caption != none { fs-caption(caption); v(0.4em, weak: true) }\n  #text(size: fs-table-size, table(columns: columns, stroke: none, inset: 4pt, align: left, ..cells))\n])".to_owned(),
+    }
+}
+
 fn content_block(text: &str) -> String {
     format!("[{}]", guard_line_start(&escape_text(text)))
 }
@@ -867,6 +925,12 @@ pub fn build_preamble(
         let _ = writeln!(text, "// ---- {} ----", emitter.name);
         for line in lines {
             let _ = writeln!(text, "{line}");
+        }
+    }
+    if !input.helpers.is_empty() {
+        let _ = writeln!(text, "// ---- constructs ----");
+        for helper in &input.helpers {
+            let _ = writeln!(text, "{}", helper_definition(view, *helper));
         }
     }
     let advanced = view.str("advanced.preamble");

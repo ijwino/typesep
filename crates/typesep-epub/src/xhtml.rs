@@ -2,12 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use typesep_model::{
-    Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, MathMode, NoteRef, NoteTable,
-    Table,
+    Align, Attachment, AttachmentKind, Block, Decoration, Doc, Figure, Inline, List, MathMode,
+    NoteRef, NoteTable, Rules, Table, TableCell, VerseLine,
 };
 use typesep_style::View;
 use typesep_typst::images::Image;
 use typesep_typst::mathml::Formula;
+
+use crate::css::Construct;
 
 pub fn esc(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -83,6 +85,8 @@ pub struct Ctx<'a> {
     pub math: MathPass,
     pub warnings: Vec<String>,
     pub ids: BTreeSet<String>,
+    /// The constructs the documents use that the base stylesheet does not style.
+    pub constructs: BTreeSet<Construct>,
     written: BTreeSet<String>,
 }
 
@@ -102,6 +106,7 @@ impl<'a> Ctx<'a> {
             math,
             warnings: Vec::new(),
             ids: BTreeSet::new(),
+            constructs: BTreeSet::new(),
             written: BTreeSet::new(),
         }
     }
@@ -209,7 +214,59 @@ fn inline_node(node: &Inline, ctx: &mut Ctx) -> String {
             }
             format!("<a href=\"{}\">{text}</a>", esc(href))
         }
+        Inline::Spaced { children } => {
+            ctx.constructs.insert(Construct::Spaced);
+            format!(
+                "<span class=\"spaced\">{}</span>",
+                inline_html(children, ctx)
+            )
+        }
+        Inline::SmallCaps { children } => {
+            ctx.constructs.insert(Construct::SmallCaps);
+            format!(
+                "<span class=\"smallcaps\">{}</span>",
+                inline_html(children, ctx)
+            )
+        }
+        Inline::Decorated {
+            line,
+            dashed,
+            children,
+        } => {
+            let (tag, mut classes) = match line {
+                Decoration::Under => ("u", Vec::new()),
+                Decoration::Strike => ("s", Vec::new()),
+                Decoration::Over => {
+                    ctx.constructs.insert(Construct::Overline);
+                    ("span", vec!["overline"])
+                }
+            };
+            if *dashed {
+                ctx.constructs.insert(Construct::Dashed);
+                classes.push("dashed");
+            }
+            format!(
+                "<{tag}{}>{}</{tag}>",
+                class_attr(&classes),
+                inline_html(children, ctx)
+            )
+        }
+        Inline::MarginNote { children } => {
+            ctx.constructs.insert(Construct::MarginNote);
+            format!(
+                "<span class=\"margin-note\">{}</span>",
+                inline_html(children, ctx)
+            )
+        }
     }
+}
+
+fn class_attr<S: AsRef<str>>(classes: &[S]) -> String {
+    if classes.is_empty() {
+        return String::new();
+    }
+    let names: Vec<&str> = classes.iter().map(AsRef::as_ref).collect();
+    format!(" class=\"{}\"", names.join(" "))
 }
 
 fn note_ref(node: &NoteRef, ctx: &mut Ctx) -> String {
@@ -286,7 +343,8 @@ fn math_html(tex: &str, display: bool, ctx: &mut Ctx) -> String {
 }
 
 fn image_html(node: &Figure, ctx: &mut Ctx) -> String {
-    let Some(image) = ctx.images.get(&node.src) else {
+    let ebook = node.ebook_src.as_ref().and_then(|src| ctx.images.get(src));
+    let Some(image) = ebook.or_else(|| ctx.images.get(&node.src)) else {
         return String::new();
     };
     let name = match ctx.assets.iter().find(|(file, _)| *file == image.file) {
@@ -361,7 +419,11 @@ fn table_html(node: &Table, ctx: &mut Ctx) -> String {
                 .iter()
                 .map(|c| {
                     let tag = if c.header { "th" } else { "td" };
-                    let mut span = String::new();
+                    let class = match node.rules {
+                        Some(Rules::Cells) => edge_classes(c, ctx),
+                        _ => String::new(),
+                    };
+                    let mut span = class;
                     if c.colspan > 1 {
                         span.push_str(&format!(" colspan=\"{}\"", c.colspan));
                     }
@@ -378,7 +440,118 @@ fn table_html(node: &Table, ctx: &mut Ctx) -> String {
         Some(caption) => format!("<caption>{}</caption>", inline_html(caption, ctx)),
         None => String::new(),
     };
-    format!("<table>{caption}{rows}</table>")
+    let class = match node.rules {
+        Some(Rules::None) => " class=\"layout\"",
+        _ => "",
+    };
+    format!("<table{class}>{caption}{rows}</table>")
+}
+
+/// The sides of a cell that are ruled, as its classes.
+fn edge_classes(cell: &TableCell, ctx: &mut Ctx) -> String {
+    let Some(edges) = cell.edges else {
+        return String::new();
+    };
+    let classes: Vec<String> = [
+        ("top", edges.top),
+        ("right", edges.right),
+        ("bottom", edges.bottom),
+        ("left", edges.left),
+    ]
+    .into_iter()
+    .filter(|(_, ruled)| *ruled)
+    .map(|(side, _)| format!("edge-{side}"))
+    .collect();
+    if !classes.is_empty() {
+        ctx.constructs.insert(Construct::Edges);
+    }
+    class_attr(&classes)
+}
+
+/// A paragraph, after `lead` (markup that opens it, as a remark's number) when there is one.
+fn para_html(
+    children: &[Inline],
+    align: Option<Align>,
+    indent_em: u8,
+    lead: &str,
+    ctx: &mut Ctx,
+) -> String {
+    let mut classes = Vec::new();
+    match align {
+        Some(Align::Center) => classes.push("center".to_owned()),
+        Some(Align::Right) => {
+            ctx.constructs.insert(Construct::Right);
+            classes.push("right".to_owned());
+        }
+        None => {}
+    }
+    if indent_em > 0 {
+        ctx.constructs.insert(Construct::Indent(indent_em));
+        classes.push(format!("indent-{indent_em}"));
+    }
+    format!(
+        "<p{}>{lead}{}</p>",
+        class_attr(&classes),
+        inline_html(children, ctx)
+    )
+}
+
+/// A remark: its number in bold, then a space, at the start of its first paragraph, inside
+/// a division that carries its id.
+fn remark_html(number: &str, id: Option<&str>, children: &[Block], ctx: &mut Ctx) -> String {
+    let id_attr = match id.filter(|id| !id.is_empty()) {
+        Some(id) => {
+            let id = ctx.id_ref(id);
+            ctx.id_attr(id)
+        }
+        None => String::new(),
+    };
+    let lead = if number.is_empty() {
+        String::new()
+    } else {
+        format!("<strong class=\"remark-number\">{}</strong> ", esc(number))
+    };
+    let mut parts = Vec::new();
+    let mut rest = children;
+    if let Some((
+        Block::Para {
+            children,
+            align,
+            indent_em,
+        },
+        after,
+    )) = children.split_first()
+    {
+        parts.push(para_html(children, *align, *indent_em, &lead, ctx));
+        rest = after;
+    } else if !lead.is_empty() {
+        parts.push(format!("<p class=\"flush\">{}</p>", lead.trim_end()));
+    }
+    parts.extend(blocks_html(rest, ctx));
+    format!("<div class=\"remark\"{id_attr}>{}</div>", parts.concat())
+}
+
+fn verse_html(lines: &[VerseLine], ctx: &mut Ctx) -> String {
+    ctx.constructs.insert(Construct::Verse);
+    let lines: String = lines
+        .iter()
+        .map(|line| {
+            let text = inline_html(&line.children, ctx);
+            let text = if text.is_empty() {
+                "\u{a0}".to_owned()
+            } else {
+                text
+            };
+            let class = if line.indent_em > 0 {
+                ctx.constructs.insert(Construct::Indent(line.indent_em));
+                format!(" class=\"indent-{}\"", line.indent_em)
+            } else {
+                String::new()
+            };
+            format!("<p{class}>{text}</p>")
+        })
+        .collect();
+    format!("<div class=\"verse\">{lines}</div>")
 }
 
 fn block_html(node: &Block, ctx: &mut Ctx) -> String {
@@ -387,6 +560,7 @@ fn block_html(node: &Block, ctx: &mut Ctx) -> String {
             level,
             id,
             children,
+            outline_only,
         } => {
             let id_attr = match id.as_deref().filter(|id| !id.is_empty()) {
                 Some(id) => {
@@ -395,18 +569,22 @@ fn block_html(node: &Block, ctx: &mut Ctx) -> String {
                 }
                 None => String::new(),
             };
+            let class = if *outline_only {
+                ctx.constructs.insert(Construct::OutlineOnly);
+                " class=\"outline-only\""
+            } else {
+                ""
+            };
             format!(
-                "<h{level}{id_attr}>{}</h{level}>",
+                "<h{level}{id_attr}{class}>{}</h{level}>",
                 inline_html(children, ctx)
             )
         }
-        Block::Para { children, align } => {
-            let class = match align {
-                Some(_) => " class=\"center\"".to_owned(),
-                None => String::new(),
-            };
-            format!("<p{class}>{}</p>", inline_html(children, ctx))
-        }
+        Block::Para {
+            children,
+            align,
+            indent_em,
+        } => para_html(children, *align, *indent_em, "", ctx),
         Block::Pre { children } => format!("<pre>{}</pre>", inline_html(children, ctx)),
         Block::Blockquote { children } => {
             format!(
@@ -451,6 +629,36 @@ fn block_html(node: &Block, ctx: &mut Ctx) -> String {
             let id = ctx.id_ref(id);
             format!("<div{}></div>", ctx.id_attr(id))
         }
+        Block::Remark {
+            number,
+            id,
+            children,
+        } => remark_html(number, id.as_deref(), children, ctx),
+        Block::Aside { children } => {
+            ctx.constructs.insert(Construct::Aside);
+            format!(
+                "<div class=\"aside\">{}</div>",
+                blocks_html(children, ctx).join("")
+            )
+        }
+        Block::Columns { columns } => {
+            if columns.is_empty() {
+                return String::new();
+            }
+            ctx.constructs.insert(Construct::Columns);
+            let columns: String = columns
+                .iter()
+                .map(|blocks| {
+                    format!(
+                        "<div class=\"column\">{}</div>",
+                        blocks_html(blocks, ctx).join("")
+                    )
+                })
+                .collect();
+            format!("<div class=\"columns\">{columns}</div>")
+        }
+        Block::Verse { lines } if lines.is_empty() => String::new(),
+        Block::Verse { lines } => verse_html(lines, ctx),
     }
 }
 

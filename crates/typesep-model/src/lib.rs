@@ -5,6 +5,14 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+fn is_zero(value: &u8) -> bool {
+    *value == 0
+}
+
 fn some_of<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<T>, D::Error> {
@@ -28,9 +36,14 @@ pub struct NoteRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Figure {
     pub src: String,
     pub alt: String,
+    /// The image an ebook shows in place of `src`, as a colour copy of a figure printed in
+    /// black and white.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ebook_src: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption: Option<Vec<Inline>>,
     #[serde(
@@ -80,12 +93,37 @@ pub enum Inline {
     #[serde(rename = "noteref")]
     NoteRef(NoteRef),
     Figure(Figure),
+    /// Letter-spaced text, the German Sperrsatz.
+    Spaced {
+        children: Vec<Inline>,
+    },
+    SmallCaps {
+        children: Vec<Inline>,
+    },
+    Decorated {
+        line: Decoration,
+        dashed: bool,
+        children: Vec<Inline>,
+    },
+    /// Text set in the margin beside the line it belongs to, as a manuscript siglum.
+    MarginNote {
+        children: Vec<Inline>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Decoration {
+    Under,
+    Over,
+    Strike,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Align {
     Center,
+    Right,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +155,27 @@ pub struct TableCell {
     pub colspan: u32,
     pub rowspan: u32,
     pub children: Vec<Inline>,
+    /// The sides of the cell that are ruled, read when the table's `rules` are `Cells`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edges: Option<Edges>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Edges {
+    pub top: bool,
+    pub right: bool,
+    pub bottom: bool,
+    pub left: bool,
+}
+
+/// Where a table's rules come from when the source says. Without it, the style decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Rules {
+    /// A table that only lays its cells out, with no rules at all.
+    None,
+    /// The rules the cells' `edges` name, and no others.
+    Cells,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +184,15 @@ pub struct Table {
     pub columns: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption: Option<Vec<Inline>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<Rules>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerseLine {
+    pub indent_em: u8,
+    pub children: Vec<Inline>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,6 +202,9 @@ pub enum Block {
         children: Vec<Inline>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         align: Option<Align>,
+        /// How far every line of the paragraph is set in from the left, in ems.
+        #[serde(default, skip_serializing_if = "is_zero", rename = "indentEm")]
+        indent_em: u8,
     },
     Pre {
         children: Vec<Inline>,
@@ -142,6 +213,10 @@ pub enum Block {
         level: u8,
         id: Option<String>,
         children: Vec<Inline>,
+        /// A heading that is in the outline (the PDF bookmarks, an ebook's contents) but not
+        /// printed.
+        #[serde(default, skip_serializing_if = "is_false", rename = "outlineOnly")]
+        outline_only: bool,
     },
     List(List),
     Blockquote {
@@ -152,6 +227,24 @@ pub enum Block {
     Rule,
     Anchor {
         id: String,
+    },
+    /// A numbered remark: its number is printed at the start of its first paragraph, and its
+    /// id is where links to it land.
+    Remark {
+        number: String,
+        id: Option<String>,
+        children: Vec<Block>,
+    },
+    /// A boxed insert.
+    Aside {
+        children: Vec<Block>,
+    },
+    /// Blocks set side by side, one list of blocks to a column.
+    Columns {
+        columns: Vec<Vec<Block>>,
+    },
+    Verse {
+        lines: Vec<VerseLine>,
     },
 }
 
@@ -320,9 +413,11 @@ mod tests {
                     level: 2,
                     id: None,
                     children: vec![text("Heading")],
+                    outline_only: false,
                 },
                 Block::Para {
                     align: Some(Align::Center),
+                    indent_em: 0,
                     children: vec![
                         Inline::Emph {
                             children: vec![text("e")],
@@ -346,6 +441,7 @@ mod tests {
                         Inline::Figure(Figure {
                             src: "https://plato.stanford.edu/entries/x/f.png".into(),
                             alt: "".into(),
+                            ebook_src: None,
                             caption: None,
                             id: None,
                             inline: Some(true),
@@ -363,6 +459,7 @@ mod tests {
                 Block::Figure(Figure {
                     src: "s".into(),
                     alt: "a".into(),
+                    ebook_src: None,
                     caption: Some(vec![]),
                     id: Some(None),
                     inline: None,
@@ -373,9 +470,11 @@ mod tests {
                         colspan: 1,
                         rowspan: 2,
                         children: vec![],
+                        edges: None,
                     }]],
                     columns: 1,
                     caption: None,
+                    rules: None,
                 }),
                 Block::Blockquote {
                     children: vec![
@@ -441,6 +540,175 @@ mod tests {
             json!("2 entries"),
             "a credit is written only where there is one"
         );
+    }
+
+    #[test]
+    fn the_constructs_of_other_sources_serialise_to_their_json_value() {
+        let doc = Doc {
+            body: vec![
+                Block::Heading {
+                    level: 2,
+                    id: Some("h".into()),
+                    children: vec![text("Hidden")],
+                    outline_only: true,
+                },
+                Block::Remark {
+                    number: "2.0121".into(),
+                    id: Some("2.0121".into()),
+                    children: vec![Block::Para {
+                        children: vec![
+                            Inline::Spaced {
+                                children: vec![text("s")],
+                            },
+                            Inline::SmallCaps {
+                                children: vec![text("c")],
+                            },
+                            Inline::Decorated {
+                                line: Decoration::Under,
+                                dashed: true,
+                                children: vec![text("u")],
+                            },
+                            Inline::Decorated {
+                                line: Decoration::Over,
+                                dashed: false,
+                                children: vec![],
+                            },
+                            Inline::Decorated {
+                                line: Decoration::Strike,
+                                dashed: false,
+                                children: vec![],
+                            },
+                            Inline::MarginNote {
+                                children: vec![text("(Ms-110,177)")],
+                            },
+                            Inline::NoteRef(NoteRef {
+                                id: "cite_note-1".into(),
+                                label: "1".into(),
+                                href: "#cite_note-1".into(),
+                                ref_id: Some("cite_ref-1".into()),
+                            }),
+                        ],
+                        align: Some(Align::Right),
+                        indent_em: 3,
+                    }],
+                },
+                Block::Remark {
+                    number: "".into(),
+                    id: None,
+                    children: vec![],
+                },
+                Block::Aside {
+                    children: vec![Block::Rule],
+                },
+                Block::Columns {
+                    columns: vec![vec![Block::Rule], vec![]],
+                },
+                Block::Verse {
+                    lines: vec![
+                        VerseLine {
+                            indent_em: 0,
+                            children: vec![text("a")],
+                        },
+                        VerseLine {
+                            indent_em: 2,
+                            children: vec![],
+                        },
+                    ],
+                },
+                Block::Table(Table {
+                    rows: vec![vec![TableCell {
+                        header: false,
+                        colspan: 1,
+                        rowspan: 1,
+                        children: vec![],
+                        edges: Some(Edges {
+                            top: true,
+                            right: false,
+                            bottom: true,
+                            left: false,
+                        }),
+                    }]],
+                    columns: 1,
+                    caption: None,
+                    rules: Some(Rules::Cells),
+                }),
+                Block::Table(Table {
+                    rows: vec![],
+                    columns: 0,
+                    caption: None,
+                    rules: Some(Rules::None),
+                }),
+                Block::Figure(Figure {
+                    src: "bw.png".into(),
+                    alt: "".into(),
+                    ebook_src: Some("colour.png".into()),
+                    caption: None,
+                    id: None,
+                    inline: None,
+                }),
+            ],
+            ..Default::default()
+        };
+        let value = serde_json::to_value(&doc).unwrap();
+        assert_eq!(
+            value["body"],
+            json!([
+                { "type": "heading", "level": 2, "id": "h", "children": [{ "type": "text", "value": "Hidden" }], "outlineOnly": true },
+                { "type": "remark", "number": "2.0121", "id": "2.0121", "children": [
+                    { "type": "para", "align": "right", "indentEm": 3, "children": [
+                        { "type": "spaced", "children": [{ "type": "text", "value": "s" }] },
+                        { "type": "smallcaps", "children": [{ "type": "text", "value": "c" }] },
+                        { "type": "decorated", "line": "under", "dashed": true, "children": [{ "type": "text", "value": "u" }] },
+                        { "type": "decorated", "line": "over", "dashed": false, "children": [] },
+                        { "type": "decorated", "line": "strike", "dashed": false, "children": [] },
+                        { "type": "marginnote", "children": [{ "type": "text", "value": "(Ms-110,177)" }] },
+                        { "type": "noteref", "id": "cite_note-1", "label": "1", "href": "#cite_note-1", "refId": "cite_ref-1" }
+                    ] }
+                ] },
+                { "type": "remark", "number": "", "id": null, "children": [] },
+                { "type": "aside", "children": [{ "type": "rule" }] },
+                { "type": "columns", "columns": [[{ "type": "rule" }], []] },
+                { "type": "verse", "lines": [
+                    { "indentEm": 0, "children": [{ "type": "text", "value": "a" }] },
+                    { "indentEm": 2, "children": [] }
+                ] },
+                { "type": "table", "rules": "cells", "columns": 1, "rows": [[
+                    { "header": false, "colspan": 1, "rowspan": 1, "children": [], "edges": { "top": true, "right": false, "bottom": true, "left": false } }
+                ]] },
+                { "type": "table", "rules": "none", "columns": 0, "rows": [] },
+                { "type": "figure", "src": "bw.png", "alt": "", "ebookSrc": "colour.png" }
+            ])
+        );
+        let read: Doc = serde_json::from_value(value).unwrap();
+        assert_eq!(read, doc, "the value round-trips");
+
+        let plain = Doc {
+            body: vec![
+                Block::Heading {
+                    level: 1,
+                    id: None,
+                    children: vec![],
+                    outline_only: false,
+                },
+                Block::Para {
+                    children: vec![],
+                    align: None,
+                    indent_em: 0,
+                },
+            ],
+            ..Default::default()
+        };
+        let value = serde_json::to_value(&plain).unwrap();
+        assert_eq!(
+            value["body"],
+            json!([
+                { "type": "heading", "level": 1, "id": null, "children": [] },
+                { "type": "para", "children": [] }
+            ]),
+            "a field at its default is not written"
+        );
+        let without: Doc = serde_json::from_value(value).unwrap();
+        assert_eq!(without, plain, "and reads back as its default");
     }
 
     #[test]

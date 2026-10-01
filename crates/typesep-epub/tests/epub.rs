@@ -32,6 +32,7 @@ fn para(value: &str) -> Block {
     Block::Para {
         children: vec![text(value)],
         align: None,
+        indent_em: 0,
     }
 }
 
@@ -91,6 +92,7 @@ fn every_block_kind_becomes_its_xhtml() {
             level: 2,
             id: Some("Sec".into()),
             children: vec![text("A Section")],
+            outline_only: false,
         },
         para("Plain."),
         Block::Blockquote {
@@ -130,6 +132,7 @@ fn with_note(blocks: Vec<Block>) -> Doc {
             }),
         ],
         align: None,
+        indent_em: 0,
     }]);
     entry.attachments = vec![Attachment {
         kind: AttachmentKind::Notes,
@@ -183,6 +186,7 @@ fn a_link_to_an_id_the_document_does_not_carry_is_not_a_link() {
                 children: vec![text("There")],
             }],
             align: None,
+            indent_em: 0,
         },
         Block::Para {
             children: vec![Inline::Link {
@@ -191,6 +195,7 @@ fn a_link_to_an_id_the_document_does_not_carry_is_not_a_link() {
                 children: vec![text("Fig. 3")],
             }],
             align: None,
+            indent_em: 0,
         },
     ]);
     let html = html(&entry);
@@ -206,6 +211,7 @@ fn an_id_the_document_writes_twice_is_written_once() {
             level: 2,
             id: Some("twice".into()),
             children: vec![text("A Section")],
+            outline_only: false,
         },
     ]);
     let html = html(&entry);
@@ -219,6 +225,7 @@ fn a_contents_entry_with_no_target_is_a_span_or_is_left_out() {
         level: 2,
         id: Some("Cla".into()),
         children: vec![text("1. Clarifications")],
+        outline_only: false,
     }]);
     entry.toc = vec![
         TocItem {
@@ -299,6 +306,7 @@ fn an_svg_image_by_reference_does_not_mark_its_document_as_svg() {
         caption: None,
         id: None,
         inline: None,
+        ebook_src: None,
     })]);
     let style = style();
     let sections = every_section();

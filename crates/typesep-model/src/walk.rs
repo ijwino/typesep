@@ -4,8 +4,10 @@ pub fn figure_urls(doc: &Doc) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut push = |figure: &Figure| {
-        if !figure.src.is_empty() && seen.insert(figure.src.clone()) {
-            out.push(figure.src.clone());
+        for src in std::iter::once(&figure.src).chain(figure.ebook_src.iter()) {
+            if !src.is_empty() && seen.insert(src.clone()) {
+                out.push(src.clone());
+            }
         }
     };
     let mut blocks: Vec<&Block> = Vec::new();
@@ -41,9 +43,21 @@ fn walk_block(block: &Block, push: &mut impl FnMut(&Figure)) {
                 walk_inlines(label, push);
             }
         }
-        Block::Blockquote { children } => {
+        Block::Blockquote { children }
+        | Block::Remark { children, .. }
+        | Block::Aside { children } => {
             for block in children {
                 walk_block(block, push);
+            }
+        }
+        Block::Columns { columns } => {
+            for block in columns.iter().flatten() {
+                walk_block(block, push);
+            }
+        }
+        Block::Verse { lines } => {
+            for line in lines {
+                walk_inlines(&line.children, push);
             }
         }
         Block::Table(table) => {
@@ -80,7 +94,11 @@ fn walk_inlines(nodes: &[Inline], push: &mut impl FnMut(&Figure)) {
             | Inline::Sub { children }
             | Inline::Sup { children }
             | Inline::Code { children }
-            | Inline::Link { children, .. } => walk_inlines(children, push),
+            | Inline::Link { children, .. }
+            | Inline::Spaced { children }
+            | Inline::SmallCaps { children }
+            | Inline::Decorated { children, .. }
+            | Inline::MarginNote { children } => walk_inlines(children, push),
             _ => {}
         }
     }
@@ -101,9 +119,21 @@ pub fn links_in_block(block: &Block, found: &mut impl FnMut(&str)) {
                 links_in_inlines(label, found);
             }
         }
-        Block::Blockquote { children } => {
+        Block::Blockquote { children }
+        | Block::Remark { children, .. }
+        | Block::Aside { children } => {
             for block in children {
                 links_in_block(block, found);
+            }
+        }
+        Block::Columns { columns } => {
+            for block in columns.iter().flatten() {
+                links_in_block(block, found);
+            }
+        }
+        Block::Verse { lines } => {
+            for line in lines {
+                links_in_inlines(&line.children, found);
             }
         }
         Block::Table(table) => {
@@ -142,7 +172,11 @@ fn links_in_inlines(nodes: &[Inline], found: &mut impl FnMut(&str)) {
             | Inline::Strong { children }
             | Inline::Sub { children }
             | Inline::Sup { children }
-            | Inline::Code { children } => links_in_inlines(children, found),
+            | Inline::Code { children }
+            | Inline::Spaced { children }
+            | Inline::SmallCaps { children }
+            | Inline::Decorated { children, .. }
+            | Inline::MarginNote { children } => links_in_inlines(children, found),
             Inline::Figure(figure) => {
                 for caption in figure.caption.iter() {
                     links_in_inlines(caption, found);
@@ -161,6 +195,7 @@ mod tests {
         Figure {
             src: src.to_owned(),
             alt: String::new(),
+            ebook_src: None,
             caption: None,
             id: None,
             inline: None,
@@ -177,7 +212,78 @@ mod tests {
                 Inline::Figure(figure("a.png")),
             ],
             align: None,
+            indent_em: 0,
         });
         assert_eq!(figure_urls(&doc), vec!["a.png", "b.svg"]);
+    }
+
+    #[test]
+    fn figures_inside_the_new_blocks_are_listed_too() {
+        let mut doc = Doc::default();
+        let mut coloured = figure("grey.png");
+        coloured.ebook_src = Some("colour.png".into());
+        doc.body.push(Block::Remark {
+            number: "1".into(),
+            id: None,
+            children: vec![Block::Aside {
+                children: vec![Block::Figure(coloured)],
+            }],
+        });
+        doc.body.push(Block::Columns {
+            columns: vec![vec![], vec![Block::Figure(figure("column.svg"))]],
+        });
+        doc.body.push(Block::Verse {
+            lines: vec![crate::VerseLine {
+                indent_em: 2,
+                children: vec![Inline::MarginNote {
+                    children: vec![Inline::Figure(figure("margin.png"))],
+                }],
+            }],
+        });
+        assert_eq!(
+            figure_urls(&doc),
+            vec!["grey.png", "colour.png", "column.svg", "margin.png"]
+        );
+    }
+
+    #[test]
+    fn links_inside_the_new_nodes_are_found() {
+        let link = |href: &str| Inline::Link {
+            href: href.to_owned(),
+            internal: false,
+            children: vec![],
+        };
+        let block = Block::Remark {
+            number: "2".into(),
+            id: Some("2".into()),
+            children: vec![
+                Block::Columns {
+                    columns: vec![vec![Block::Verse {
+                        lines: vec![crate::VerseLine {
+                            indent_em: 0,
+                            children: vec![Inline::Spaced {
+                                children: vec![link("a")],
+                            }],
+                        }],
+                    }]],
+                },
+                Block::Para {
+                    children: vec![Inline::Decorated {
+                        line: crate::Decoration::Under,
+                        dashed: true,
+                        children: vec![Inline::SmallCaps {
+                            children: vec![Inline::MarginNote {
+                                children: vec![link("b")],
+                            }],
+                        }],
+                    }],
+                    align: None,
+                    indent_em: 0,
+                },
+            ],
+        };
+        let mut found = Vec::new();
+        links_in_block(&block, &mut |href| found.push(href.to_owned()));
+        assert_eq!(found, vec!["a", "b"]);
     }
 }

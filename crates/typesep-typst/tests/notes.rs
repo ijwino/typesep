@@ -25,6 +25,7 @@ fn para(value: &str) -> Block {
     Block::Para {
         children: vec![text(value)],
         align: None,
+        indent_em: 0,
     }
 }
 
@@ -56,6 +57,7 @@ fn entry(slug: &str, notes: &[(i64, usize)]) -> Doc {
                 text(", and then some words after it."),
             ],
             align: None,
+            indent_em: 0,
         });
     }
     Doc {
@@ -172,6 +174,7 @@ fn moved_notes_take_a_heading_of_their_own_when_the_endnotes_have_taken_notes() 
             text("."),
         ],
         align: None,
+        indent_em: 0,
     });
     let (source, compiled) = render(&[&doc], &style(&["links.mode=endnote"]));
     assert!(source.contains("#heading(level: 2)[Notes]"), "{source}");

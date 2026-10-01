@@ -18,6 +18,7 @@ fn para(children: Vec<Inline>) -> Block {
     Block::Para {
         children,
         align: None,
+        indent_em: 0,
     }
 }
 

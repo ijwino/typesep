@@ -157,6 +157,7 @@ fn para(children: Vec<Inline>) -> Block {
     Block::Para {
         children,
         align: None,
+        indent_em: 0,
     }
 }
 
@@ -557,6 +558,7 @@ fn element_block(ctx: &mut Ctx, el: ElementRef) -> Vec<Block> {
             vec![Block::Para {
                 children: inline(ctx, *el),
                 align,
+                indent_em: 0,
             }]
         }
 
@@ -568,6 +570,7 @@ fn element_block(ctx: &mut Ctx, el: ElementRef) -> Vec<Block> {
             level: heading_level(&tag),
             id: id.map(str::to_owned),
             children: inline(ctx, *el),
+            outline_only: false,
         }],
 
         "ul" | "ol" => with_anchor(vec![Block::List(list(ctx, el))]),
@@ -666,6 +669,7 @@ fn figure_block(ctx: &mut Ctx, div: ElementRef) -> Vec<Block> {
             out.push(Block::Para {
                 children: trim_inline(inline(ctx, *caption)),
                 align: Some(Align::Center),
+                indent_em: 0,
             });
         }
         out.extend(rest);
@@ -779,6 +783,7 @@ fn parse_table(ctx: &mut Ctx, table: ElementRef) -> Option<Table> {
                 colspan: span_of(cell.attr("colspan"), MAX_COLSPAN),
                 rowspan: span_of(cell.attr("rowspan"), MAX_ROWSPAN),
                 children: inline(ctx, *cell),
+                edges: None,
             });
         }
         if !cells.is_empty() {
@@ -804,6 +809,7 @@ fn parse_table(ctx: &mut Ctx, table: ElementRef) -> Option<Table> {
         rows,
         columns,
         caption,
+        rules: None,
     })
 }
 
@@ -823,6 +829,7 @@ fn image_from(ctx: &Ctx, el: ElementRef) -> Option<Figure> {
         caption: None,
         id: None,
         inline: None,
+        ebook_src: None,
     };
     if dom::is(&el, "object") {
         if let Some(fallback) = dom::descendants_named(*el, &["img"]).next() {

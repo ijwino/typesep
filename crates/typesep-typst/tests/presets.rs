@@ -12,6 +12,7 @@ fn para(value: &str) -> Block {
     Block::Para {
         children: vec![text(value)],
         align: None,
+        indent_em: 0,
     }
 }
 
@@ -32,6 +33,7 @@ fn doc() -> Doc {
                 level: 2,
                 id: Some("one".to_owned()),
                 children: vec![text("The inclusive use")],
+                outline_only: false,
             },
             para("Pleasure, in the inclusive usage, includes the affective positivity of all joy."),
             Block::List(List {
