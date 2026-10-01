@@ -89,8 +89,8 @@ fn corpus() -> Option<Corpus> {
 
 /// Where the binary runs: no typesep.config.yaml or fonts/ in it, a fontconfig file that
 /// hides the system fonts, so a fallback family is kept or skipped the same way on every
-/// machine, and an unreachable proxy, so whatever the library lacks fails instead of being
-/// fetched into it.
+/// machine, a copy of the corpus library, which a build writes to, and an unreachable proxy,
+/// so whatever the library lacks fails instead of being fetched.
 struct Harness {
     work: tempfile::TempDir,
     library: PathBuf,
@@ -109,9 +109,11 @@ impl Harness {
             ),
         )
         .expect("a fontconfig file");
+        let copy = work.path().join("library");
+        copy_dir(library, &copy).expect("a copy of the library");
         Harness {
             work,
-            library: library.to_owned(),
+            library: copy,
         }
     }
 
@@ -183,6 +185,20 @@ impl Harness {
         }
         Ok((out, stderr))
     }
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
 }
 
 /// Runs `check` over the baselines on as many threads as there are cores, and returns the

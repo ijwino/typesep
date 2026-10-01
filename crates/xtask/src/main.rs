@@ -81,13 +81,13 @@ struct Baselines {
     /// Where the snapshots go; the corpus's snapshots/render by default.
     #[arg(long, value_name = "DIR")]
     out: Option<PathBuf>,
-    /// The library the binary reads; the corpus's own by default.
+    /// The library the binary reads a copy of; the corpus's own by default.
     #[arg(long, value_name = "DIR")]
     library: Option<PathBuf>,
     /// Replace the snapshots that are there.
     #[arg(long)]
     bless: bool,
-    /// Leave the binary's own outputs behind, in out/baselines.
+    /// Leave the binary's own outputs and the library copy behind, in out/baselines.
     #[arg(long)]
     keep: bool,
     /// Say what is happening, output by output.

@@ -149,6 +149,15 @@ pub fn run(args: BaselineArgs) -> std::process::ExitCode {
             .unwrap_or_else(|err| super::fail(&format!("{}: {err}", dir.display())));
     }
     write_font_config(&args.work);
+    // A build writes to the library it reads, so it reads a copy and the corpus stays as the
+    // snapshots were made from it.
+    let copy = args.work.join("library");
+    copy_dir(&args.library, &copy)
+        .unwrap_or_else(|err| super::fail(&format!("copying {}: {err}", args.library.display())));
+    let args = BaselineArgs {
+        library: copy,
+        ..args
+    };
 
     let mut lines: Vec<Line> = Vec::new();
     let mut failures: Vec<(String, String)> = Vec::new();
@@ -259,6 +268,20 @@ fn invocations(models: &Path) -> Vec<Invocation> {
         }
     }
     out
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
 }
 
 /// A fontconfig file that names one empty directory, so the binary finds no system fonts and
