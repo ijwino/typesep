@@ -186,6 +186,7 @@ pub fn parse_entry(html: &str, opts: &ParseOptions) -> Doc {
     let links = collect_entry_links(&document, opts.source_url);
 
     let mut back = Vec::new();
+    let mut absent = BTreeSet::new();
     for (key, label) in SECTION_LABELS {
         let selector: &Selector = match key {
             ContentKey::Bib => &BIBLIOGRAPHY,
@@ -201,13 +202,15 @@ pub fn parse_entry(html: &str, opts: &ParseOptions) -> Doc {
                 label: label.to_owned(),
                 blocks: blocks_of_all(&mut ctx, matched),
             });
+        } else {
+            absent.insert(label.to_lowercase());
         }
     }
 
     Doc {
         meta,
         front,
-        toc,
+        toc: without_items_named(toc, &absent),
         body,
         back,
         links,
@@ -466,6 +469,19 @@ fn parse_toc<'a>(lists: impl Iterator<Item = ElementRef<'a>>) -> Vec<TocItem> {
         }
     }
     items
+}
+
+/// The contents without the lines that name end matter the page does not have, at any
+/// depth, matched as the renderers match the sections left out of a document.
+fn without_items_named(items: Vec<TocItem>, labels: &BTreeSet<String>) -> Vec<TocItem> {
+    items
+        .into_iter()
+        .filter(|item| !labels.contains(&item.text.trim().to_lowercase()))
+        .map(|item| TocItem {
+            children: without_items_named(item.children, labels),
+            ..item
+        })
+        .collect()
 }
 
 fn blocks_of_all<'a>(
@@ -1492,6 +1508,34 @@ mod tests {
                 { "text": "1. A", "href": "#A", "children": [{ "text": "1.1 A1", "href": "#A1", "children": [] }] },
                 { "text": "Plain", "href": "", "children": [{ "text": "x", "href": "", "children": [] }] }
             ])
+        );
+    }
+
+    #[test]
+    fn the_contents_leave_out_end_matter_the_page_does_not_have() {
+        let d = entry(
+            "<div id=\"toc\"><ul><li><a href=\"#S\">1. S</a><ul><li><a href=\"#T\"> ACADEMIC tools </a></li>\
+             <li><a href=\"#U\">Academic Tools and More</a></li></ul></li><li><a href=\"#Bib\">Bibliography</a></li>\
+             <li><a href=\"#Aca\">Academic Tools</a><ul><li><a href=\"#x\">x</a></li></ul></li>\
+             <li><a href=\"#Oth\">Other Internet Resources</a></li><li><a href=\"#Rel\">Related Entries</a></li></ul></div>\
+             <div id=\"main-text\"><h2 id=\"S\">S</h2></div><div id=\"bibliography\"><p>Ref</p></div>\
+             <div id=\"other-internet-resources\"><p>Web</p></div><div id=\"related-entries\"><p>See</p></div>",
+        );
+        let texts = |items: &[TocItem]| items.iter().map(|i| i.text.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            texts(&d.toc),
+            [
+                "1. S",
+                "Bibliography",
+                "Other Internet Resources",
+                "Related Entries"
+            ],
+            "the academic tools are not on the page, so not in its contents"
+        );
+        assert_eq!(
+            texts(&d.toc[0].children),
+            ["Academic Tools and More"],
+            "at any depth, by the whole label and nothing looser"
         );
     }
 
