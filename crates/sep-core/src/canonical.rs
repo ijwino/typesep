@@ -1,7 +1,7 @@
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::model::EntryDoc;
+use crate::model::Doc;
 
 pub fn canonical_json<T: Serialize + ?Sized>(value: &T) -> serde_json::Result<String> {
     let value = serde_json::to_value(value)?;
@@ -10,7 +10,7 @@ pub fn canonical_json<T: Serialize + ?Sized>(value: &T) -> serde_json::Result<St
     Ok(text)
 }
 
-pub fn model_json(doc: &EntryDoc) -> serde_json::Result<String> {
+pub fn model_json(doc: &Doc) -> serde_json::Result<String> {
     let mut value = serde_json::to_value(doc)?;
     if let Some(meta) = value.get_mut("meta").and_then(Value::as_object_mut) {
         meta.remove("fetchedAt");
@@ -23,12 +23,12 @@ pub fn model_json(doc: &EntryDoc) -> serde_json::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::EntryMeta;
+    use crate::model::Meta;
 
     #[test]
     fn keys_are_sorted_and_the_timestamp_is_dropped() {
-        let doc = EntryDoc {
-            meta: EntryMeta {
+        let doc = Doc {
+            meta: Meta {
                 slug: "turing-machine".into(),
                 fetched_at: "2026-09-03".into(),
                 edition: "".into(),

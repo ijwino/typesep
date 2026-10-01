@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use sep_core::model::{AttachmentKind, EntryDoc, TocItem};
+use sep_core::model::{AttachmentKind, Doc, TocItem};
 use sep_core::sections::{ContentKey, SECTION_LABELS};
 use sep_typst::style::View;
 
@@ -53,7 +53,7 @@ fn render(
 }
 
 pub fn nav_items(
-    doc: &EntryDoc,
+    doc: &Doc,
     file: &str,
     view: &View,
     sections: &BTreeSet<ContentKey>,

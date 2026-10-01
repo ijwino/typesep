@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use sep_core::model::{
-    Attachment, AttachmentKind, Block, EntryDoc, Figure, Inline, List, ListNumbering, NoteRef,
+    Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, ListNumbering, NoteRef,
     NoteTable, Table, TableCell, TocItem,
 };
 use sep_core::sections::{ContentKey, SECTION_LABELS, selected_sections};
@@ -210,7 +210,7 @@ impl<'a> Ctx<'a> {
     }
 }
 
-fn highest_note_number(doc: &EntryDoc) -> i64 {
+fn highest_note_number(doc: &Doc) -> i64 {
     let mut max = 0;
     walk_doc(doc, &mut |node| {
         if let Inline::NoteRef(note) = node
@@ -222,7 +222,7 @@ fn highest_note_number(doc: &EntryDoc) -> i64 {
     max
 }
 
-fn walk_doc(doc: &EntryDoc, visit: &mut impl FnMut(&Inline)) {
+fn walk_doc(doc: &Doc, visit: &mut impl FnMut(&Inline)) {
     let mut blocks: Vec<&Block> = Vec::new();
     blocks.extend(doc.preamble.iter());
     blocks.extend(doc.body.iter());
@@ -1039,7 +1039,7 @@ impl<T> Pipe for T {}
 
 /// Where the entry came from and who holds it: the source, the date it was fetched and the
 /// copyright line. Both the title page and the colophon open with these.
-fn provenance(meta: &sep_core::model::EntryMeta, merged: bool, retrieved: &str) -> Vec<String> {
+fn provenance(meta: &sep_core::model::Meta, merged: bool, retrieved: &str) -> Vec<String> {
     let source = if meta.edition_label.is_empty() {
         SEP_NAME.to_owned()
     } else {
@@ -1075,7 +1075,7 @@ fn note_block(parts: &[String]) -> String {
 /// The terms the entry is read under, as the last page. This is not a style option: no
 /// setting removes it, because `cover.style` and `cover.fields` are the reader's to choose
 /// and the notice is not. The EPUB carries the same words in `dc:rights`.
-fn colophon(meta: &sep_core::model::EntryMeta, merged: bool, retrieved: &str) -> String {
+fn colophon(meta: &sep_core::model::Meta, merged: bool, retrieved: &str) -> String {
     let mut parts = provenance(meta, merged, retrieved);
     parts.push(escape_text(PERSONAL_USE_NOTICE));
     parts.push(format!(
@@ -1091,8 +1091,8 @@ fn colophon(meta: &sep_core::model::EntryMeta, merged: bool, retrieved: &str) ->
 }
 
 fn simple_cover(
-    meta: &sep_core::model::EntryMeta,
-    docs: &[&EntryDoc],
+    meta: &sep_core::model::Meta,
+    docs: &[&Doc],
     merged: bool,
     retrieved: &str,
     ctx: &mut Ctx<'_>,
@@ -1162,7 +1162,7 @@ fn simple_cover(
     )
 }
 
-fn entry_body(doc: &EntryDoc, ctx: &mut Ctx<'_>) -> Vec<String> {
+fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
     ctx.slug = doc.meta.slug.clone();
     ctx.math = Converter::new(&doc.meta.macros);
     ctx.notes = doc
@@ -1299,9 +1299,9 @@ fn region_name(key: ContentKey) -> &'static str {
     }
 }
 
-fn render_body(docs: &[&EntryDoc], ctx: &mut Ctx<'_>, opts: &EmitOptions<'_>) -> String {
+fn render_body(docs: &[&Doc], ctx: &mut Ctx<'_>, opts: &EmitOptions<'_>) -> String {
     let view = ctx.view;
-    let metas: Vec<&sep_core::model::EntryMeta> = docs.iter().map(|d| &d.meta).collect();
+    let metas: Vec<&sep_core::model::Meta> = docs.iter().map(|d| &d.meta).collect();
     let meta = volume_meta(docs, opts.volume_title);
     let retrieved = retrieval_dates(&metas);
 
@@ -1342,7 +1342,7 @@ fn render_body(docs: &[&EntryDoc], ctx: &mut Ctx<'_>, opts: &EmitOptions<'_>) ->
     out.join("\n\n")
 }
 
-pub fn emit_document(docs: &[&EntryDoc], style: &Style, opts: EmitOptions<'_>) -> Rendered {
+pub fn emit_document(docs: &[&Doc], style: &Style, opts: EmitOptions<'_>) -> Rendered {
     assert!(!docs.is_empty(), "a group holds at least one entry");
     let view = View::new(style);
     let merged = docs.len() > 1;
@@ -1355,7 +1355,7 @@ pub fn emit_document(docs: &[&EntryDoc], style: &Style, opts: EmitOptions<'_>) -
     ctx.known = known;
     let body = render_body(docs, &mut ctx, &opts);
 
-    let metas: Vec<&sep_core::model::EntryMeta> = docs.iter().map(|d| &d.meta).collect();
+    let metas: Vec<&sep_core::model::Meta> = docs.iter().map(|d| &d.meta).collect();
     let meta = volume_meta(docs, opts.volume_title);
     let input = PreambleInput {
         title: meta.title.clone(),

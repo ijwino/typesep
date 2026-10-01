@@ -1,8 +1,8 @@
 use crate::entry::Source;
 use crate::fetch::{FetchOptions, FetchResult};
-use crate::model::{Block, EntryDoc, Figure, Inline};
+use crate::model::{Block, Doc, Figure, Inline};
 
-pub fn figure_urls(doc: &EntryDoc) -> Vec<String> {
+pub fn figure_urls(doc: &Doc) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut push = |figure: &Figure| {
@@ -101,11 +101,7 @@ pub struct FigureFetch {
     pub failed: Vec<(String, String)>,
 }
 
-pub fn fetch_figures(
-    doc: &EntryDoc,
-    source: &mut Source<'_>,
-    log: &mut dyn FnMut(&str),
-) -> FigureFetch {
+pub fn fetch_figures(doc: &Doc, source: &mut Source<'_>, log: &mut dyn FnMut(&str)) -> FigureFetch {
     let mut result = FigureFetch::default();
     for url in figure_urls(doc) {
         match source.library.has(&url) {
@@ -181,7 +177,7 @@ mod tests {
 
     #[test]
     fn figures_are_listed_once_each_in_the_order_they_appear() {
-        let mut doc = EntryDoc::default();
+        let mut doc = Doc::default();
         doc.body.push(Block::Figure(figure("a.png")));
         doc.body.push(Block::Para {
             children: vec![
@@ -206,7 +202,7 @@ mod tests {
         );
         library.write(&held, b"\x89PNG", None, None).unwrap();
         library.mark_missing(&gone).unwrap();
-        let mut doc = EntryDoc::default();
+        let mut doc = Doc::default();
         for src in [&held, &gone, &absent] {
             doc.body.push(Block::Figure(figure(src)));
         }

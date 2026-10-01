@@ -1,5 +1,5 @@
 use crate::lazy_regex;
-use sep_core::model::{EntryDoc, EntryMeta};
+use sep_core::model::{Doc, Meta};
 
 pub const SEP_NAME: &str = "Stanford Encyclopedia of Philosophy";
 pub const PERSONAL_USE_NOTICE: &str = concat!(
@@ -32,7 +32,7 @@ const MONTHS: [&str; 12] = [
     "December",
 ];
 
-pub fn dateline(meta: &EntryMeta) -> String {
+pub fn dateline(meta: &Meta) -> String {
     let mut parts = Vec::new();
     if !meta.first_published.is_empty() {
         parts.push(format!("First published {}", meta.first_published));
@@ -61,7 +61,7 @@ pub fn format_date(iso: &str) -> String {
     }
 }
 
-pub fn fetch_date_span(metas: &[&EntryMeta]) -> Option<(String, String)> {
+pub fn fetch_date_span(metas: &[&Meta]) -> Option<(String, String)> {
     let mut dates: Vec<String> = metas
         .iter()
         .map(|m| m.fetched_at.chars().take(10).collect::<String>())
@@ -74,7 +74,7 @@ pub fn fetch_date_span(metas: &[&EntryMeta]) -> Option<(String, String)> {
     Some((first, last))
 }
 
-pub fn retrieval_dates(metas: &[&EntryMeta]) -> String {
+pub fn retrieval_dates(metas: &[&Meta]) -> String {
     let Some((first, last)) = fetch_date_span(metas) else {
         return String::new();
     };
@@ -93,7 +93,7 @@ pub fn retrieval_dates(metas: &[&EntryMeta]) -> String {
     format!("{} – {}", format_date(&first), format_date(&last))
 }
 
-pub fn copyright_line(meta: &EntryMeta) -> String {
+pub fn copyright_line(meta: &Meta) -> String {
     if meta.copyright_year.is_empty() {
         return String::new();
     }
@@ -105,7 +105,7 @@ pub fn copyright_line(meta: &EntryMeta) -> String {
     format!("Copyright © {} by {by}", meta.copyright_year)
 }
 
-pub fn volume_meta(docs: &[&EntryDoc], volume_title: Option<&str>) -> EntryMeta {
+pub fn volume_meta(docs: &[&Doc], volume_title: Option<&str>) -> Meta {
     let mut meta = docs[0].meta.clone();
     meta.macros.clear();
     for doc in docs {
@@ -124,10 +124,10 @@ pub fn volume_meta(docs: &[&EntryDoc], volume_title: Option<&str>) -> EntryMeta 
 mod tests {
     use super::*;
 
-    fn fetched(date: &str) -> EntryMeta {
-        EntryMeta {
+    fn fetched(date: &str) -> Meta {
+        Meta {
             fetched_at: date.to_owned(),
-            ..EntryMeta::default()
+            ..Meta::default()
         }
     }
 
@@ -152,18 +152,18 @@ mod tests {
 
     #[test]
     fn datelines_and_copyright() {
-        let meta = EntryMeta {
+        let meta = Meta {
             first_published: "Mon Sep 24, 2018".into(),
             revision: "Wed May 21, 2025".into(),
             copyright_year: "2025".into(),
             author_line: "A, B, and C".into(),
-            ..EntryMeta::default()
+            ..Meta::default()
         };
         assert_eq!(
             dateline(&meta),
             "First published Mon Sep 24, 2018; substantive revision Wed May 21, 2025"
         );
         assert_eq!(copyright_line(&meta), "Copyright © 2025 by A, B, and C");
-        assert_eq!(copyright_line(&EntryMeta::default()), "");
+        assert_eq!(copyright_line(&Meta::default()), "");
     }
 }

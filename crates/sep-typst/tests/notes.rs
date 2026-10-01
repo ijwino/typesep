@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use sep_core::model::{
-    Attachment, AttachmentKind, Block, EntryDoc, EntryMeta, Inline, NoteRef, NoteTable,
-};
+use sep_core::model::{Attachment, AttachmentKind, Block, Doc, Inline, Meta, NoteRef, NoteTable};
 use sep_core::style::{ResolveOptions, Style, resolve_style};
 use sep_typst::{Compiled, EmitOptions, Fonts, SepWorld, compile_pdf, emit_document};
 
@@ -38,7 +36,7 @@ fn filler(words: usize) -> String {
         .join(" ")
 }
 
-fn entry(slug: &str, notes: &[(i64, usize)]) -> EntryDoc {
+fn entry(slug: &str, notes: &[(i64, usize)]) -> Doc {
     let mut table: NoteTable = BTreeMap::new();
     let mut body = Vec::new();
     for (number, words) in notes {
@@ -58,12 +56,12 @@ fn entry(slug: &str, notes: &[(i64, usize)]) -> EntryDoc {
             align: None,
         });
     }
-    EntryDoc {
-        meta: EntryMeta {
+    Doc {
+        meta: Meta {
             slug: slug.to_owned(),
             title: slug.to_owned(),
             source_url: format!("https://plato.stanford.edu/entries/{slug}/"),
-            ..EntryMeta::default()
+            ..Meta::default()
         },
         body,
         attachments: vec![Attachment {
@@ -73,11 +71,11 @@ fn entry(slug: &str, notes: &[(i64, usize)]) -> EntryDoc {
             source_url: format!("https://plato.stanford.edu/entries/{slug}/notes.html"),
             notes: Some(table),
         }],
-        ..EntryDoc::default()
+        ..Doc::default()
     }
 }
 
-fn render(docs: &[&EntryDoc], style: &Style) -> (String, Compiled) {
+fn render(docs: &[&Doc], style: &Style) -> (String, Compiled) {
     let fonts = Fonts::embedded();
     let rendered = emit_document(
         docs,

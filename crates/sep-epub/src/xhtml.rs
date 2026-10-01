@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use sep_core::model::{
-    Attachment, AttachmentKind, Block, EntryDoc, Figure, Inline, List, MathMode, NoteRef,
-    NoteTable, Table,
+    Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, MathMode, NoteRef, NoteTable,
+    Table,
 };
 use sep_core::sections::{ContentKey, selected_sections};
 use sep_typst::images::Image;
@@ -522,7 +522,7 @@ fn notes_section(ctx: &mut Ctx) -> String {
     )
 }
 
-pub fn entry_html(doc: &EntryDoc, ctx: &mut Ctx, sections: &BTreeSet<ContentKey>) -> String {
+pub fn entry_html(doc: &Doc, ctx: &mut Ctx, sections: &BTreeSet<ContentKey>) -> String {
     ctx.notes = doc
         .attachments
         .iter()

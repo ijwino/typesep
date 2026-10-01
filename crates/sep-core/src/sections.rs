@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::model::{Block, EntryDoc};
+use crate::model::{Block, Doc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ContentKey {
@@ -53,7 +53,7 @@ pub const SECTION_LABELS: [(ContentKey, &str); 4] = [
 ];
 
 pub fn selected_sections<'a>(
-    doc: &'a EntryDoc,
+    doc: &'a Doc,
     wanted: &BTreeSet<ContentKey>,
 ) -> Vec<(ContentKey, &'static str, &'a [Block])> {
     SECTION_LABELS

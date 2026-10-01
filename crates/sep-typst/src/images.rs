@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use sep_core::library::Library;
-use sep_core::model::EntryDoc;
+use sep_core::model::Doc;
 use typst::foundations::Bytes;
 use typst::visualize::{ExchangeFormat, RasterImage, SvgImage};
 
@@ -68,7 +68,7 @@ pub struct Image {
 }
 
 pub fn collect(
-    doc: &EntryDoc,
+    doc: &Doc,
     library: &Library,
     warn: &mut dyn FnMut(String),
 ) -> BTreeMap<String, Image> {

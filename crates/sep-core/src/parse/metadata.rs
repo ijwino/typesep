@@ -4,7 +4,7 @@ use scraper::Html;
 
 use super::dom::{self, lazy_selector};
 use super::js::{self, WS, lazy_regex};
-use crate::model::EntryMeta;
+use crate::model::Meta;
 
 lazy_selector!(AUEDITABLE_H1 = "#aueditable > h1");
 lazy_selector!(H1 = "h1");
@@ -28,7 +28,7 @@ pub struct MetadataSource<'a> {
     pub fetched_at: &'a str,
 }
 
-pub fn parse_metadata(document: &Html, src: &MetadataSource) -> EntryMeta {
+pub fn parse_metadata(document: &Html, src: &MetadataSource) -> Meta {
     let first_text = |selector| {
         dom::select(document, selector)
             .next()
@@ -87,7 +87,7 @@ pub fn parse_metadata(document: &Html, src: &MetadataSource) -> EntryMeta {
         .filter(|line| !line.is_empty())
         .collect();
 
-    EntryMeta {
+    Meta {
         slug: src.slug.to_owned(),
         title,
         author_line: format_authors(&authors),

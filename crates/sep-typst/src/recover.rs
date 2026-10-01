@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use sep_core::model::EntryDoc;
+use sep_core::model::Doc;
 use sep_core::style::Style;
 
 use crate::compile::{CompileError, Compiled, compile_pdf, typesets};
@@ -90,7 +90,7 @@ fn excerpt(tex: &str) -> String {
 }
 
 pub fn compile_document(
-    docs: &[&EntryDoc],
+    docs: &[&Doc],
     style: &Style,
     opts: EmitOptions<'_>,
     fonts: &Fonts,
@@ -103,7 +103,7 @@ pub fn compile_document(
 }
 
 fn compile_and_recover(
-    docs: &[&EntryDoc],
+    docs: &[&Doc],
     style: &Style,
     opts: EmitOptions<'_>,
     fonts: &Fonts,

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::fetch::{FetchError, FetchOptions, FetchResult, Fetcher};
 use crate::library::{FileMeta, HOST, Library, LibraryError, PlaceError};
-use crate::model::{AttachmentKind, Block, EntryDoc, Inline};
+use crate::model::{AttachmentKind, Block, Doc, Inline};
 use crate::parse::metadata::is_edition;
 use crate::parse::{
     AttachmentOptions, ParseOptions, extract_macros, parse_attachment, parse_entry,
@@ -242,7 +242,7 @@ fn macros_url(page_url: &str) -> Option<String> {
 
 #[derive(Debug)]
 pub struct LoadedEntry {
-    pub doc: EntryDoc,
+    pub doc: Doc,
     pub from_cache: bool,
     pub previous_revision: Option<String>,
 }
@@ -296,7 +296,7 @@ pub fn load_entry(
 
     let mut macro_sources: BTreeSet<String> = BTreeSet::new();
     let mut add_macros =
-        |source: &mut Source<'_>, doc: &mut EntryDoc, page_url: &str, log: &mut dyn FnMut(&str)| {
+        |source: &mut Source<'_>, doc: &mut Doc, page_url: &str, log: &mut dyn FnMut(&str)| {
             let Some(url) = macros_url(page_url) else {
                 return;
             };
@@ -385,7 +385,7 @@ impl std::fmt::Display for UpdateStatus {
     }
 }
 
-pub fn related_entry_urls(doc: &EntryDoc) -> Vec<String> {
+pub fn related_entry_urls(doc: &Doc) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for block in doc.sections.related_entries.iter().flatten() {
@@ -858,7 +858,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         let temp = tempfile::tempdir().unwrap();
         let library = Library::new(temp.path());
         library.init().unwrap();
-        let mut doc = EntryDoc::default();
+        let mut doc = Doc::default();
         doc.body
             .push(crate::model::Block::Figure(crate::model::Figure {
                 src: format!("{TM}S1.svg"),

@@ -1,4 +1,4 @@
-use sep_core::model::EntryDoc;
+use sep_core::model::Doc;
 use sep_typst::text::{
     MERGED_RIGHTS, PERSONAL_USE_NOTICE, SEP_NAME, copyright_line, fetch_date_span,
 };
@@ -44,7 +44,7 @@ fn now_utc() -> String {
 }
 
 pub fn content_opf(
-    docs: &[&EntryDoc],
+    docs: &[&Doc],
     chapters: &[Chapter],
     assets: &[(std::path::PathBuf, String)],
     volume_title: Option<&str>,
@@ -75,7 +75,7 @@ pub fn content_opf(
     .cloned()
     .collect::<Vec<_>>()
     .join(" ");
-    let metas: Vec<&sep_core::model::EntryMeta> = docs.iter().map(|d| &d.meta).collect();
+    let metas: Vec<&sep_core::model::Meta> = docs.iter().map(|d| &d.meta).collect();
     let retrieved = fetch_date_span(&metas).map(|(_, last)| last);
     let identifier = if merged {
         docs.iter()

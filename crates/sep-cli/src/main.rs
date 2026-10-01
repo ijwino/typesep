@@ -12,7 +12,7 @@ use sep_core::entry::{
 use sep_core::fetch::{DEFAULT_DELAY_MS, DEFAULT_TIMEOUT_MS, Fetcher, Loudness};
 use sep_core::figures::fetch_figures;
 use sep_core::library::{Library, default_library_dir};
-use sep_core::model::EntryDoc;
+use sep_core::model::Doc;
 use sep_core::output::{file_name_for, job_name_for, output_file};
 use sep_core::sections::{ContentKey, default_sections_text, parse_content_keys};
 use sep_core::style::shorthand::{choices_for, is_boolean, shorthand};
@@ -754,11 +754,11 @@ fn style_command(opts: &StyleCommandOptions, matches: &ArgMatches) -> ExitCode {
 
 struct Group<'a> {
     name: String,
-    docs: Vec<&'a EntryDoc>,
+    docs: Vec<&'a Doc>,
     volume_title: Option<String>,
 }
 
-fn entry_name(doc: &EntryDoc) -> String {
+fn entry_name(doc: &Doc) -> String {
     if doc.meta.edition.is_empty() {
         doc.meta.slug.clone()
     } else {
@@ -766,7 +766,7 @@ fn entry_name(doc: &EntryDoc) -> String {
     }
 }
 
-fn group_entries<'a>(docs: &'a [EntryDoc], merge: Option<&str>) -> Vec<Group<'a>> {
+fn group_entries<'a>(docs: &'a [Doc], merge: Option<&str>) -> Vec<Group<'a>> {
     match merge {
         Some(_) if docs.is_empty() => Vec::new(),
         Some(name) => vec![Group {
@@ -1051,7 +1051,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     let started = std::time::Instant::now();
     let mut failures: Vec<(String, String)> = Vec::new();
     let built = if let Some(merge) = cli.output.merge.as_deref() {
-        let mut docs: Vec<EntryDoc> = Vec::new();
+        let mut docs: Vec<Doc> = Vec::new();
         let read = match walk_entries(
             &mut source,
             &entries,
@@ -1453,7 +1453,7 @@ fn read_entries(
     targets: &[EntryTarget],
     sections: &BTreeSet<ContentKey>,
     quiet: bool,
-) -> Result<Vec<EntryDoc>, ExitCode> {
+) -> Result<Vec<Doc>, ExitCode> {
     let mut docs = Vec::new();
     let mut source = Source::offline(library);
     for target in targets {
@@ -1898,7 +1898,7 @@ mod tests {
 
     #[test]
     fn archived_editions_get_their_own_file_name() {
-        let mut doc = EntryDoc::default();
+        let mut doc = Doc::default();
         doc.meta.slug = "kant".into();
         assert_eq!(entry_name(&doc), "kant");
         doc.meta.edition = "sum2020".into();

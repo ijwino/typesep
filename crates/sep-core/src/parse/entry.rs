@@ -8,8 +8,8 @@ use super::dom::{self, Ref, lazy_selector};
 use super::js::{self, DOT, WORD, WS, lazy_regex};
 use super::metadata::{MetadataSource, parse_metadata};
 use crate::model::{
-    Align, Attachment, AttachmentKind, Block, EntryDoc, EntryLinks, Figure, Inline, List,
-    ListNumbering, MathMode, NoteRef, NoteTable, Sections, Table, TableCell, TocItem,
+    Align, Attachment, AttachmentKind, Block, Doc, EntryLinks, Figure, Inline, List, ListNumbering,
+    MathMode, NoteRef, NoteTable, Sections, Table, TableCell, TocItem,
 };
 
 lazy_regex!(MATH_RE = r"\\\(([\s\S]*?)\\\)|\\\[([\s\S]*?)\\\]");
@@ -166,7 +166,7 @@ pub struct ParseOptions<'a> {
     pub fetched_at: &'a str,
 }
 
-pub fn parse_entry(html: &str, opts: &ParseOptions) -> EntryDoc {
+pub fn parse_entry(html: &str, opts: &ParseOptions) -> Doc {
     let document = Html::parse_document(&PDF_EXCLUDE_RE.replace_all(html, ""));
     let mut ctx = Ctx::new(opts.source_url);
 
@@ -201,7 +201,7 @@ pub fn parse_entry(html: &str, opts: &ParseOptions) -> EntryDoc {
         }
     }
 
-    EntryDoc {
+    Doc {
         meta,
         preamble,
         toc,
@@ -1054,7 +1054,7 @@ mod tests {
 
     const SOURCE: &str = "https://plato.stanford.edu/entries/computer-science/";
 
-    fn entry(html: &str) -> EntryDoc {
+    fn entry(html: &str) -> Doc {
         parse_entry(
             html,
             &ParseOptions {

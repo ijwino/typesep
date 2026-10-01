@@ -2,8 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 
 use sep_core::model::{
-    Attachment, AttachmentKind, Block, EntryDoc, EntryMeta, Figure, Inline, List, NoteRef,
-    NoteTable, TocItem,
+    Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, Meta, NoteRef, NoteTable, TocItem,
 };
 use sep_core::sections::{ALL_CONTENT_KEYS, ContentKey};
 use sep_core::style::{ResolveOptions, Style, resolve_style};
@@ -36,9 +35,9 @@ fn para(value: &str) -> Block {
     }
 }
 
-fn doc(body: Vec<Block>) -> EntryDoc {
-    EntryDoc {
-        meta: EntryMeta {
+fn doc(body: Vec<Block>) -> Doc {
+    Doc {
+        meta: Meta {
             slug: "x".into(),
             title: "An Entry".into(),
             source_url: "https://plato.stanford.edu/entries/x/".into(),
@@ -49,7 +48,7 @@ fn doc(body: Vec<Block>) -> EntryDoc {
     }
 }
 
-fn html(doc: &EntryDoc) -> String {
+fn html(doc: &Doc) -> String {
     let style = style();
     let view = View::new(&style);
     let images = BTreeMap::new();
@@ -110,7 +109,7 @@ fn every_block_kind_becomes_its_xhtml() {
     assert!(html.contains("<h1>An Entry</h1>"));
 }
 
-fn with_note(blocks: Vec<Block>) -> EntryDoc {
+fn with_note(blocks: Vec<Block>) -> Doc {
     let mut entry = doc(vec![Block::Para {
         children: vec![
             text("Body"),

@@ -6,7 +6,7 @@ pub mod xhtml;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use sep_core::model::EntryDoc;
+use sep_core::model::Doc;
 use sep_core::sections::ContentKey;
 use sep_typst::fonts::Fonts;
 use sep_typst::images::Image;
@@ -48,7 +48,7 @@ pub struct Epub {
 }
 
 pub fn build_epub(
-    docs: &[&EntryDoc],
+    docs: &[&Doc],
     style: &sep_core::style::Style,
     options: EpubOptions,
 ) -> Result<Epub, EpubError> {

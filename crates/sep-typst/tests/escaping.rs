@@ -1,4 +1,4 @@
-use sep_core::model::{Block, EntryDoc, EntryMeta, Inline, List, ListNumbering};
+use sep_core::model::{Block, Doc, Inline, List, ListNumbering, Meta};
 use sep_core::style::{ResolveOptions, resolve_style};
 use sep_typst::{EmitOptions, Fonts, SepWorld, emit_document};
 use typst::layout::{Frame, FrameItem};
@@ -80,14 +80,14 @@ fn typeset(blocks: &[Block]) -> Result<String, String> {
     let mut body = vec![para(vec![text(START)])];
     body.extend(blocks.iter().cloned());
     body.push(para(vec![text(END)]));
-    let doc = EntryDoc {
-        meta: EntryMeta {
+    let doc = Doc {
+        meta: Meta {
             slug: "escaping".into(),
             title: "Escaping".into(),
-            ..EntryMeta::default()
+            ..Meta::default()
         },
         body,
-        ..EntryDoc::default()
+        ..Doc::default()
     };
     let style = resolve_style(ResolveOptions {
         preset: Some("halfletter"),

@@ -162,7 +162,7 @@ pub type MacroTable = BTreeMap<String, MacroDef>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EntryMeta {
+pub struct Meta {
     pub slug: String,
     pub title: String,
     pub authors: Vec<String>,
@@ -224,8 +224,8 @@ pub struct EntryLinks {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct EntryDoc {
-    pub meta: EntryMeta,
+pub struct Doc {
+    pub meta: Meta,
     pub preamble: Vec<Block>,
     pub toc: Vec<TocItem>,
     pub body: Vec<Block>,
@@ -248,8 +248,8 @@ mod tests {
 
     #[test]
     fn nodes_serialise_to_their_json_value() {
-        let doc = EntryDoc {
-            meta: EntryMeta {
+        let doc = Doc {
+            meta: Meta {
                 slug: "x".into(),
                 macros: BTreeMap::from([(
                     "opL".to_owned(),
@@ -371,7 +371,7 @@ mod tests {
             "warnings": []
         });
         assert_eq!(value, expected);
-        let back: EntryDoc = serde_json::from_value(value).unwrap();
+        let back: Doc = serde_json::from_value(value).unwrap();
         assert_eq!(back, doc, "the value round-trips");
     }
 
