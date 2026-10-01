@@ -3224,6 +3224,7 @@ dependencies = [
 name = "typesep-epub"
 version = "0.1.0"
 dependencies = [
+ "roxmltree 0.21.1",
  "time",
  "typesep-model",
  "typesep-style",

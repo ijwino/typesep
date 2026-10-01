@@ -1,12 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 
+use typesep_epub::css;
 use typesep_epub::nav::nav_items;
 use typesep_epub::xhtml::{Ctx, MathPass, entry_html, esc, xml_id};
 use typesep_epub::{EpubError, EpubOptions, build_epub};
 use typesep_model::{
-    Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, Meta, NoteRef, NoteTable, Origin,
-    TocItem,
+    Align, Attachment, AttachmentKind, Block, Decoration, Doc, Edges, Figure, Inline, List, Meta,
+    NoteRef, NoteTable, Origin, Rules, Table, TableCell, TocItem, VerseLine,
 };
 use typesep_style::View;
 use typesep_style::{ResolveOptions, Style, resolve_style};
@@ -383,4 +384,428 @@ fn characters_xml_forbids_are_dropped() {
     assert_eq!(esc("\u{fffe}x\u{ffff}"), "x");
     assert_eq!(esc("tab\tline\nreturn\r"), "tab\tline\nreturn\r");
     assert_eq!(esc("<&>"), "&lt;&amp;&gt;");
+}
+
+/// The members of `doc`'s EPUB that are text, by name, built with `sets`.
+fn epub_text(
+    doc: &Doc,
+    sets: &[&str],
+    images: &BTreeMap<String, Image>,
+) -> BTreeMap<String, String> {
+    let style = resolve_style(ResolveOptions {
+        preset: Some("halfletter"),
+        file: None,
+        sets: sets.iter().map(|s| (*s).into()).collect(),
+    })
+    .unwrap();
+    let sections = every_section();
+    let fonts = Fonts::embedded();
+    let epub = build_epub(
+        &[doc],
+        &style,
+        EpubOptions {
+            sections: &sections,
+            images,
+            volume: None,
+            fonts: &fonts,
+        },
+    )
+    .unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(epub.bytes)).unwrap();
+    let mut out = BTreeMap::new();
+    for index in 0..archive.len() {
+        let mut member = archive.by_index(index).unwrap();
+        let mut text = String::new();
+        if member.read_to_string(&mut text).is_ok() {
+            out.insert(member.name().to_owned(), text);
+        }
+    }
+    out
+}
+
+fn cell(value: &str, edges: Option<Edges>) -> TableCell {
+    TableCell {
+        header: false,
+        colspan: 1,
+        rowspan: 1,
+        children: vec![text(value)],
+        edges,
+    }
+}
+
+/// `value` in every place a construct of another source sets text.
+fn every_construct(value: &str) -> Vec<Block> {
+    let inline = |wrap: fn(Vec<Inline>) -> Inline| Block::Para {
+        children: vec![wrap(vec![text(value)])],
+        align: None,
+        indent_em: 0,
+    };
+    vec![
+        Block::Heading {
+            level: 2,
+            id: Some("hidden".into()),
+            children: vec![text(value)],
+            outline_only: true,
+        },
+        Block::Remark {
+            number: value.to_owned(),
+            id: Some(value.to_owned()),
+            children: vec![para(value), para(value)],
+        },
+        Block::Remark {
+            number: value.to_owned(),
+            id: None,
+            children: vec![Block::Rule],
+        },
+        inline(|children| Inline::MarginNote { children }),
+        inline(|children| Inline::Spaced { children }),
+        inline(|children| Inline::SmallCaps { children }),
+        inline(|children| Inline::Decorated {
+            line: Decoration::Under,
+            dashed: true,
+            children,
+        }),
+        inline(|children| Inline::Decorated {
+            line: Decoration::Over,
+            dashed: false,
+            children,
+        }),
+        inline(|children| Inline::Decorated {
+            line: Decoration::Strike,
+            dashed: false,
+            children,
+        }),
+        Block::Para {
+            children: vec![text(value)],
+            align: Some(Align::Right),
+            indent_em: 2,
+        },
+        Block::Verse {
+            lines: vec![
+                VerseLine {
+                    indent_em: 0,
+                    children: vec![text(value)],
+                },
+                VerseLine {
+                    indent_em: 0,
+                    children: vec![],
+                },
+                VerseLine {
+                    indent_em: 2,
+                    children: vec![text(value)],
+                },
+            ],
+        },
+        Block::Aside {
+            children: vec![para(value)],
+        },
+        Block::Columns {
+            columns: vec![vec![para(value)], vec![para(value)]],
+        },
+        Block::Table(Table {
+            rows: vec![vec![
+                cell(
+                    value,
+                    Some(Edges {
+                        top: true,
+                        right: false,
+                        bottom: false,
+                        left: true,
+                    }),
+                ),
+                cell(value, None),
+            ]],
+            columns: 2,
+            caption: None,
+            rules: Some(Rules::Cells),
+        }),
+        Block::Table(Table {
+            rows: vec![vec![cell(value, None)]],
+            columns: 1,
+            caption: None,
+            rules: Some(Rules::None),
+        }),
+        Block::Para {
+            children: vec![
+                text(value),
+                Inline::NoteRef(NoteRef {
+                    id: "cite_note-1".into(),
+                    label: "1".into(),
+                    href: "#cite_note-1".into(),
+                    ref_id: Some("cite_ref-1".into()),
+                }),
+            ],
+            align: None,
+            indent_em: 0,
+        },
+    ]
+}
+
+fn with_every_construct(value: &str) -> Doc {
+    let mut entry = doc(every_construct(value));
+    entry.toc = vec![TocItem {
+        text: value.to_owned(),
+        href: "#hidden".into(),
+        children: vec![],
+    }];
+    entry.notes = NoteTable::from([("cite_note-1".to_owned(), vec![para(value)])]);
+    entry
+}
+
+#[test]
+fn every_construct_of_another_source_becomes_its_xhtml() {
+    let html = html(&with_every_construct("words"));
+    for expected in [
+        r#"<h2 id="hidden" class="outline-only">words</h2>"#,
+        r#"<div class="remark" id="words"><p><strong class="remark-number">words</strong> words</p><p>words</p></div>"#,
+        r#"<div class="remark"><p class="flush"><strong class="remark-number">words</strong></p><hr/></div>"#,
+        r#"<p><span class="margin-note">words</span></p>"#,
+        r#"<p><span class="spaced">words</span></p>"#,
+        r#"<p><span class="smallcaps">words</span></p>"#,
+        r#"<p><u class="dashed">words</u></p>"#,
+        r#"<p><span class="overline">words</span></p>"#,
+        r#"<p><s>words</s></p>"#,
+        r#"<p class="right indent-2">words</p>"#,
+        "<div class=\"verse\"><p>words</p><p>\u{a0}</p><p class=\"indent-2\">words</p></div>",
+        r#"<div class="aside"><p>words</p></div>"#,
+        r#"<div class="columns"><div class="column"><p>words</p></div><div class="column"><p>words</p></div></div>"#,
+        r#"<table><tr><td class="edge-top edge-left">words</td><td>words</td></tr></table>"#,
+        r#"<table class="layout"><tr><td>words</td></tr></table>"#,
+        r##"<sup><a class="noteref" epub:type="noteref" href="#cite_note-1" id="cite_ref-1">1</a></sup>"##,
+        r##"<aside class="note" epub:type="footnote" id="cite_note-1"><p class="flush"><a href="#cite_ref-1">1.</a> words</p></aside>"##,
+    ] {
+        assert!(html.contains(expected), "{expected}\n{html}");
+    }
+}
+
+/// Text that is markup to XML, to come out as written wherever the constructs of other
+/// sources put text.
+const HOSTILE: &[&str] = &[
+    "a < b & c > d",
+    "</p></div><p>",
+    "<![CDATA[x]]> and ]]>",
+    "<!-- not a comment -->",
+    "\"double\" and 'single' quotes",
+    "&amp; &#60; &lt;",
+    "a backslash then a newline \\\nand on",
+    "#strong[x] $y$ <label> @label",
+];
+
+fn text_of(xml: &str) -> String {
+    let document = roxmltree::Document::parse(xml).unwrap_or_else(|error| panic!("{error}\n{xml}"));
+    document
+        .descendants()
+        .filter(|node| node.is_text())
+        .filter_map(|node| node.text())
+        .collect()
+}
+
+#[test]
+fn the_xhtml_of_every_construct_parses_as_xml_and_keeps_its_text_as_written() {
+    for value in std::iter::once("words").chain(HOSTILE.iter().copied()) {
+        let members = epub_text(&with_every_construct(value), &[], &BTreeMap::new());
+        for name in ["OEBPS/entry-1.xhtml", "OEBPS/nav.xhtml"] {
+            let page = &members[name];
+            let text = text_of(page);
+            let wanted = if name.ends_with("nav.xhtml") { 1 } else { 20 };
+            assert!(
+                text.matches(value).count() >= wanted,
+                "{value:?} {} times in {name}: {text}",
+                text.matches(value).count()
+            );
+        }
+    }
+    for notes in ["endnote", "appendix"] {
+        let set = format!("notes.style={notes}");
+        let members = epub_text(&with_every_construct(HOSTILE[1]), &[&set], &BTreeMap::new());
+        let text = text_of(&members["OEBPS/entry-1.xhtml"]);
+        assert!(text.contains(HOSTILE[1]), "{notes}: {text}");
+    }
+}
+
+#[test]
+fn a_heading_for_the_outline_only_is_in_the_nav_and_hidden_on_the_page() {
+    let members = epub_text(
+        &with_every_construct("A Hidden Part"),
+        &[],
+        &BTreeMap::new(),
+    );
+    assert!(
+        members["OEBPS/nav.xhtml"]
+            .contains(r#"<li><a href="entry-1.xhtml#hidden">A Hidden Part</a></li>"#),
+        "{}",
+        members["OEBPS/nav.xhtml"]
+    );
+    assert!(
+        members["OEBPS/entry-1.xhtml"]
+            .contains(r#"<h2 id="hidden" class="outline-only">A Hidden Part</h2>"#)
+    );
+    assert!(
+        members["OEBPS/style.css"].contains(".outline-only{display:none;}"),
+        "{}",
+        members["OEBPS/style.css"]
+    );
+}
+
+#[test]
+fn a_remark_id_is_where_a_link_to_it_lands() {
+    let html = html(&doc(vec![
+        Block::Remark {
+            number: "2.0121".into(),
+            id: Some("2.0121".into()),
+            children: vec![para("The remark.")],
+        },
+        Block::Para {
+            children: vec![Inline::Link {
+                href: "2.0121".into(),
+                internal: true,
+                children: vec![text("see 2.0121")],
+            }],
+            align: None,
+            indent_em: 0,
+        },
+    ]));
+    assert!(
+        html.contains(r#"<div class="remark" id="x2.0121">"#),
+        "{html}"
+    );
+    assert!(
+        html.contains(r##"<a href="#x2.0121">see 2.0121</a>"##),
+        "{html}"
+    );
+}
+
+fn svg(name: &str, fill: &str) -> Image {
+    let file = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
+    std::fs::write(
+        &file,
+        format!("<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"9\" height=\"9\" fill=\"{fill}\"/></svg>"),
+    )
+    .unwrap();
+    Image {
+        file,
+        format: "svg",
+    }
+}
+
+#[test]
+fn a_figure_with_an_ebook_image_shows_that_image() {
+    let figure = Figure {
+        src: "grey.svg".into(),
+        alt: "a square".into(),
+        ebook_src: Some("colour.svg".into()),
+        caption: None,
+        id: None,
+        inline: None,
+    };
+    let entry = doc(vec![Block::Figure(figure)]);
+    let both = BTreeMap::from([
+        ("grey.svg".to_owned(), svg("ebook-grey.svg", "#888888")),
+        ("colour.svg".to_owned(), svg("ebook-colour.svg", "#2a7ab0")),
+    ]);
+    let members = epub_text(&entry, &[], &both);
+    assert!(
+        members["OEBPS/img-1.svg"].contains("#2a7ab0"),
+        "{members:?}"
+    );
+    assert!(
+        !members.contains_key("OEBPS/img-2.svg"),
+        "the grey one is not carried"
+    );
+
+    let print_only = BTreeMap::from([("grey.svg".to_owned(), svg("ebook-grey.svg", "#888888"))]);
+    let members = epub_text(&entry, &[], &print_only);
+    assert!(
+        members["OEBPS/img-1.svg"].contains("#888888"),
+        "without its ebook image, a figure shows the one it has"
+    );
+}
+
+#[test]
+fn the_stylesheet_has_rules_only_for_the_constructs_a_document_uses() {
+    let style = style();
+    let view = View::new(&style);
+    let base = css::stylesheet(&view);
+    let members = epub_text(&doc(vec![para("Plain.")]), &[], &BTreeMap::new());
+    assert_eq!(members["OEBPS/style.css"], base);
+
+    let spaced = doc(vec![Block::Para {
+        children: vec![Inline::Spaced {
+            children: vec![text("gesperrt")],
+        }],
+        align: None,
+        indent_em: 0,
+    }]);
+    let members = epub_text(&spaced, &[], &BTreeMap::new());
+    assert_eq!(
+        members["OEBPS/style.css"],
+        format!("{base}\nspan.spaced{{letter-spacing:0.2em;}}")
+    );
+
+    let members = epub_text(&with_every_construct("words"), &[], &BTreeMap::new());
+    for rule in [
+        "p.right{",
+        "p.indent-2{margin-left:2em;",
+        "span.margin-note{",
+        "span.smallcaps{font-variant:small-caps;}",
+        "span.overline{",
+        ".dashed{text-decoration-style:dashed;}",
+        "div.aside{",
+        "div.columns{display:flex;",
+        "div.verse>p{",
+        "td.edge-top,th.edge-top{border-top:1px solid;}",
+    ] {
+        assert!(members["OEBPS/style.css"].contains(rule), "{rule}");
+    }
+}
+
+#[test]
+fn notes_the_document_holds_are_an_appendix_in_the_order_the_text_refers_to_them() {
+    let refer = |id: &str, label: &str| {
+        Inline::NoteRef(NoteRef {
+            id: id.to_owned(),
+            label: label.to_owned(),
+            href: format!("#{id}"),
+            ref_id: Some(format!("cite_ref-{label}")),
+        })
+    };
+    let mut entry = doc(vec![Block::Para {
+        children: vec![
+            text("One"),
+            refer("cite_note-10", "1"),
+            refer("cite_note-2", "2"),
+        ],
+        align: None,
+        indent_em: 0,
+    }]);
+    entry.notes = NoteTable::from([
+        ("cite_note-10".to_owned(), vec![para("Tenth.")]),
+        ("cite_note-2".to_owned(), vec![para("Second.")]),
+        ("cite_note-9".to_owned(), vec![para("Never referred to.")]),
+    ]);
+    let members = epub_text(&entry, &["notes.style=appendix"], &BTreeMap::new());
+    let page = &members["OEBPS/entry-1.xhtml"];
+    text_of(page);
+    assert!(
+        page.contains(r##"<sup>[<a href="#cite_note-10" id="cite_ref-1">1</a>]</sup>"##),
+        "{page}"
+    );
+    let tenth = page
+        .find(r##"<aside class="note" epub:type="footnote" id="cite_note-10"><p class="flush"><a href="#cite_ref-1">1.</a> Tenth.</p></aside>"##)
+        .unwrap_or_else(|| panic!("{page}"));
+    let second = page.find(r#"id="cite_note-2""#).unwrap();
+    let never = page
+        .find(r#"id="cite_note-9"><p class="flush">. Never referred to.</p>"#)
+        .unwrap_or_else(|| panic!("{page}"));
+    assert!(tenth < second && second < never, "{page}");
+
+    let members = epub_text(&entry, &["notes.style=footnote"], &BTreeMap::new());
+    let page = &members["OEBPS/entry-1.xhtml"];
+    assert!(
+        page.contains(
+            r##"<a class="noteref" epub:type="noteref" href="#cite_note-10" id="cite_ref-1">1</a>"##
+        ),
+        "{page}"
+    );
+    assert!(!page.contains("Never referred to."), "{page}");
 }

@@ -12,3 +12,6 @@ typesep-style.workspace = true
 typesep-typst.workspace = true
 zip.workspace = true
 time.workspace = true
+
+[dev-dependencies]
+roxmltree.workspace = true
