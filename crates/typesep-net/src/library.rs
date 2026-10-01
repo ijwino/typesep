@@ -266,6 +266,17 @@ impl Library {
         Ok(base.join(format!("{}{suffix}", place.file)))
     }
 
+    /// The files that may hold what `url` names, the best first: the file fetched from it, then
+    /// a copy converted to PNG. Neither need exist.
+    pub fn copies_of(&self, url: &str) -> Vec<PathBuf> {
+        let Ok(path) = self.file_path(url) else {
+            return Vec::new();
+        };
+        let mut out = vec![path];
+        out.extend(self.derived_path(url, ".png").ok());
+        out
+    }
+
     pub fn unit_meta(&self, unit: &str) -> Option<UnitMeta> {
         let text = fs::read_to_string(self.unit_dir(unit).join(META)).ok()?;
         serde_json::from_str(&text).ok()
@@ -926,6 +937,15 @@ mod tests {
                 .unwrap(),
             dir.join(".derived/contents.html.x")
         );
+
+        assert_eq!(
+            library.copies_of(&format!("{TM}S1.svg")),
+            [
+                dir.join("entries/turing-machine/S1.svg"),
+                dir.join(".derived/entries/turing-machine/S1.svg.png")
+            ]
+        );
+        assert!(library.copies_of(&format!("{TM}?x=1")).is_empty());
 
         assert_eq!(library.read_body(TM).unwrap().as_deref(), Some("<html/>"));
         assert_eq!(library.read_body(&format!("{TM}local.js")).unwrap(), None);

@@ -9,7 +9,6 @@ repository.workspace = true
 [dependencies]
 typesep-model.workspace = true
 typesep-style.workspace = true
-typesep-net.workspace = true
 typst.workspace = true
 typst-pdf.workspace = true
 typst-html.workspace = true
@@ -21,3 +20,4 @@ regex.workspace = true
 
 [dev-dependencies]
 regex.workspace = true
+tempfile.workspace = true

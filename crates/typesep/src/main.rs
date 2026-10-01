@@ -1142,7 +1142,7 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
         group
             .docs
             .iter()
-            .flat_map(|doc| images::collect(doc, ctx.library, &mut collect))
+            .flat_map(|doc| images::collect(doc, &|url| ctx.library.copies_of(url), &mut collect))
             .collect()
     };
     let cover_template = cover_template(ctx.style)?;

@@ -3279,9 +3279,9 @@ version = "0.1.0"
 dependencies = [
  "mitex",
  "regex",
+ "tempfile",
  "time",
  "typesep-model",
- "typesep-net",
  "typesep-style",
  "typst",
  "typst-html",

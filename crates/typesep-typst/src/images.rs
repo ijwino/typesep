@@ -2,11 +2,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use typesep_model::Doc;
-use typesep_net::library::Library;
 use typst::foundations::Bytes;
 use typst::visualize::{ExchangeFormat, RasterImage, SvgImage};
 
-pub use typesep_model::walk::figure_urls;
+use typesep_model::walk::figure_urls;
 
 pub const NATIVE: [&str; 6] = ["svg", "png", "jpg", "jpeg", "gif", "webp"];
 
@@ -67,26 +66,19 @@ pub struct Image {
     pub format: &'static str,
 }
 
+/// The figures of `doc` that Typst can draw, by URL. `locate` names the files that may hold
+/// the figure at a URL, the best first; the first one that decodes is used.
 pub fn collect(
     doc: &Doc,
-    library: &Library,
+    locate: &dyn Fn(&str) -> Vec<PathBuf>,
     warn: &mut dyn FnMut(String),
 ) -> BTreeMap<String, Image> {
     let mut out = BTreeMap::new();
     for url in figure_urls(doc) {
-        let Ok(path) = library.file_path(&url) else {
-            continue;
-        };
-        let candidates = [
-            Some(path.clone()).filter(|p| p.is_file()),
-            library
-                .derived_path(&url, ".png")
-                .ok()
-                .filter(|p| p.is_file()),
-        ];
+        let candidates = locate(&url).into_iter().filter(|p| p.is_file());
         let mut placed = false;
         let mut failure = None;
-        for file in candidates.into_iter().flatten() {
+        for file in candidates {
             let checked = std::fs::read(&file)
                 .map_err(|err| format!("could not be read ({err})"))
                 .and_then(usable);
@@ -148,5 +140,68 @@ mod tests {
         assert_eq!(usable(format!("\u{feff}<!-- c -->{SVG}").into()), Ok("svg"));
         assert!(usable(b"<svg xmlns=\"http://www.w3.org/2000/svg\"><g>".to_vec()).is_err());
         assert!(usable(b"<?xml version=\"1.0\"?><rss/>".to_vec()).is_err());
+    }
+
+    #[test]
+    fn a_figure_is_the_first_file_the_caller_names_that_decodes() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = |name: &str, bytes: &[u8]| {
+            let path = temp.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        };
+        let (broken, png, svg) = (
+            file(
+                "broken.svg",
+                b"<svg xmlns=\"http://www.w3.org/2000/svg\"><g>",
+            ),
+            file("s.png", &PNG),
+            file("good.svg", SVG.as_bytes()),
+        );
+        let mut doc = Doc::default();
+        for src in ["u/broken", "u/good", "u/lost", "u/none"] {
+            doc.body
+                .push(typesep_model::Block::Figure(typesep_model::Figure {
+                    src: src.to_owned(),
+                    alt: String::new(),
+                    caption: None,
+                    id: None,
+                    inline: None,
+                }));
+        }
+        let locate = |url: &str| match url {
+            "u/broken" => vec![broken.clone(), png.clone()],
+            "u/good" => vec![temp.path().join("absent.png"), svg.clone()],
+            "u/lost" => vec![broken.clone()],
+            _ => Vec::new(),
+        };
+        let mut warnings = Vec::new();
+        let images = collect(&doc, &locate, &mut |w| warnings.push(w));
+        assert_eq!(
+            images,
+            BTreeMap::from([
+                (
+                    "u/broken".to_owned(),
+                    Image {
+                        file: png.clone(),
+                        format: "png"
+                    }
+                ),
+                (
+                    "u/good".to_owned(),
+                    Image {
+                        file: svg.clone(),
+                        format: "svg"
+                    }
+                ),
+            ])
+        );
+        assert_eq!(
+            warnings,
+            [
+                "figure u/lost does not decode as svg (the SVG does not parse) and the library holds no usable converted copy; leaving it out"
+            ],
+            "a figure with no file at all is left out without a word"
+        );
     }
 }
