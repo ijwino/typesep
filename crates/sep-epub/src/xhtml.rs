@@ -5,7 +5,6 @@ use sep_core::model::{
     Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, MathMode, NoteRef, NoteTable,
     Table,
 };
-use sep_core::sections::{ContentKey, selected_sections};
 use sep_typst::images::Image;
 use sep_typst::mathml::Formula;
 use sep_typst::style::View;
@@ -521,7 +520,7 @@ fn notes_section(ctx: &mut Ctx) -> String {
     )
 }
 
-pub fn entry_html(doc: &Doc, ctx: &mut Ctx, sections: &BTreeSet<ContentKey>) -> String {
+pub fn entry_html(doc: &Doc, ctx: &mut Ctx, sections: &BTreeSet<String>) -> String {
     ctx.notes = doc
         .attachments
         .iter()
@@ -566,7 +565,7 @@ pub fn entry_html(doc: &Doc, ctx: &mut Ctx, sections: &BTreeSet<ContentKey>) -> 
     parts.extend(blocks_html(&doc.front, ctx));
     parts.extend(blocks_html(&doc.body, ctx));
 
-    if ctx.view.str("notes.style") == "appendix" && sections.contains(&ContentKey::Notes) {
+    if ctx.view.str("notes.style") == "appendix" && sections.contains("notes") {
         for extra in doc
             .attachments
             .iter()
@@ -575,10 +574,10 @@ pub fn entry_html(doc: &Doc, ctx: &mut Ctx, sections: &BTreeSet<ContentKey>) -> 
             parts.push(attachment_html(extra, ctx));
         }
     }
-    for section in selected_sections(doc, sections) {
+    for section in doc.back.iter().filter(|s| sections.contains(&s.key)) {
         parts.extend(blocks_html(&section.blocks, ctx));
     }
-    if sections.contains(&ContentKey::Supplements) {
+    if sections.contains("supplements") {
         for extra in doc
             .attachments
             .iter()

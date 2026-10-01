@@ -5,7 +5,6 @@ use sep_core::model::{
     Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, Meta, NoteRef, NoteTable, Origin,
     TocItem,
 };
-use sep_core::sections::{ALL_CONTENT_KEYS, ContentKey};
 use sep_core::style::{ResolveOptions, Style, resolve_style};
 use sep_epub::nav::nav_items;
 use sep_epub::xhtml::{Ctx, MathPass, entry_html, esc, xml_id};
@@ -52,11 +51,17 @@ fn doc(body: Vec<Block>) -> Doc {
     }
 }
 
+fn every_section() -> BTreeSet<String> {
+    ["bib", "academic", "oir", "related", "notes", "supplements"]
+        .map(str::to_owned)
+        .into()
+}
+
 fn html(doc: &Doc) -> String {
     let style = style();
     let view = View::new(&style);
     let images = BTreeMap::new();
-    let sections: BTreeSet<ContentKey> = ALL_CONTENT_KEYS.into_iter().collect();
+    let sections = every_section();
     let mut first = Ctx::new(&view, &images, MathPass::Collect(Vec::new()));
     entry_html(doc, &mut first, &sections);
     let mut ctx = Ctx::new(
@@ -239,7 +244,7 @@ fn a_contents_entry_with_no_target_is_a_span_or_is_left_out() {
     let style = style();
     let view = View::new(&style);
     let images = BTreeMap::new();
-    let sections: BTreeSet<ContentKey> = ALL_CONTENT_KEYS.into_iter().collect();
+    let sections = every_section();
     let mut ctx = Ctx::new(&view, &images, MathPass::Collect(Vec::new()));
     entry_html(&entry, &mut ctx, &sections);
     let nav = nav_items(&entry, "entry-1.xhtml", &view, &sections, &ctx.ids);
@@ -258,7 +263,7 @@ fn a_contents_entry_with_no_target_is_a_span_or_is_left_out() {
 fn an_epub_of_no_entry_is_an_error() {
     let style = style();
     let images = BTreeMap::new();
-    let sections: BTreeSet<ContentKey> = ALL_CONTENT_KEYS.into_iter().collect();
+    let sections = every_section();
     let fonts = Fonts::embedded();
     let volume = Meta {
         title: "vol".into(),
@@ -296,7 +301,7 @@ fn an_svg_image_by_reference_does_not_mark_its_document_as_svg() {
         inline: None,
     })]);
     let style = style();
-    let sections: BTreeSet<ContentKey> = ALL_CONTENT_KEYS.into_iter().collect();
+    let sections = every_section();
     let fonts = Fonts::embedded();
     let epub = build_epub(
         &[&entry],

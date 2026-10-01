@@ -1,7 +1,5 @@
 use std::collections::BTreeSet;
 
-use crate::model::{Doc, Section};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ContentKey {
     Bib,
@@ -52,11 +50,10 @@ pub const SECTION_LABELS: [(ContentKey, &str); 4] = [
     (ContentKey::Related, "Related Entries"),
 ];
 
-pub fn selected_sections<'a>(doc: &'a Doc, wanted: &BTreeSet<ContentKey>) -> Vec<&'a Section> {
-    doc.back
-        .iter()
-        .filter(|section| wanted.iter().any(|key| key.name() == section.key))
-        .collect()
+/// The keys as the renderers take them, which name the sections of `Doc::back` and the
+/// notes and supplements.
+pub fn key_names(keys: &BTreeSet<ContentKey>) -> BTreeSet<String> {
+    keys.iter().map(|key| key.name().to_owned()).collect()
 }
 
 pub const DEFAULT_CONTENT_KEYS: [ContentKey; 4] = [
@@ -152,6 +149,10 @@ mod tests {
             "unknown section \"figures\"\n  known: bib, bibliography, academic, academic-tools, oir, other-internet-resources, related, related-entries, notes, supplements, supplement"
         );
         assert_eq!(default_sections_text(), "bib,oir,related,notes");
+        assert_eq!(
+            key_names(&set(&[Related, Bib, Notes])),
+            ["bib", "notes", "related"].map(str::to_owned).into()
+        );
         let regions: Vec<&str> = ["preamble", "body"]
             .into_iter()
             .chain(ALL_CONTENT_KEYS.iter().map(|k| k.name()))

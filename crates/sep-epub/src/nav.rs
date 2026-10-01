@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 
 use sep_core::model::{AttachmentKind, Doc, TocItem};
-use sep_core::sections::ContentKey;
 use sep_typst::style::View;
 
 use crate::xhtml::{esc, xml_id};
@@ -56,13 +55,13 @@ pub fn nav_items(
     doc: &Doc,
     file: &str,
     view: &View,
-    sections: &BTreeSet<ContentKey>,
+    sections: &BTreeSet<String>,
     ids: &BTreeSet<String>,
 ) -> String {
     let dropped: BTreeSet<String> = doc
         .back
         .iter()
-        .filter(|section| !sections.iter().any(|key| key.name() == section.key))
+        .filter(|section| !sections.contains(&section.key))
         .map(|section| section.label.to_lowercase())
         .collect();
     let appendix = view.str("notes.style") == "appendix";
@@ -71,8 +70,8 @@ pub fn nav_items(
         .iter()
         .enumerate()
         .filter(|(_, a)| match a.kind {
-            AttachmentKind::Notes => appendix && sections.contains(&ContentKey::Notes),
-            AttachmentKind::Supplement => sections.contains(&ContentKey::Supplements),
+            AttachmentKind::Notes => appendix && sections.contains("notes"),
+            AttachmentKind::Supplement => sections.contains("supplements"),
         })
         .filter_map(|(i, a)| {
             let id = xml_id(&format!("a{}--attachment", i + 1));

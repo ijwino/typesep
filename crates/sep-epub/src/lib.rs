@@ -7,7 +7,6 @@ pub mod xhtml;
 use std::collections::{BTreeMap, BTreeSet};
 
 use sep_core::model::{Doc, Meta};
-use sep_core::sections::ContentKey;
 use sep_typst::fonts::Fonts;
 use sep_typst::images::Image;
 use sep_typst::mathml;
@@ -36,7 +35,7 @@ impl std::fmt::Display for EpubError {
 impl std::error::Error for EpubError {}
 
 pub struct EpubOptions<'a> {
-    pub sections: &'a BTreeSet<ContentKey>,
+    pub sections: &'a BTreeSet<String>,
     pub images: &'a BTreeMap<String, Image>,
     pub volume: Option<&'a Meta>,
     pub fonts: &'a Fonts,

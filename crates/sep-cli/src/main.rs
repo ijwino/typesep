@@ -15,7 +15,7 @@ use sep_core::library::{Library, default_library_dir};
 use sep_core::model::{Doc, Meta};
 use sep_core::output::{file_name_for, job_name_for, output_file};
 use sep_core::parse::volume_meta;
-use sep_core::sections::{ContentKey, default_sections_text, parse_content_keys};
+use sep_core::sections::{ContentKey, default_sections_text, key_names, parse_content_keys};
 use sep_core::style::shorthand::{choices_for, is_boolean, shorthand};
 use sep_core::style::{
     Explained, PRESET_KEY, ResolveOptions, SHORTHANDS, SetItem, Style, StyleError, Value,
@@ -1145,8 +1145,9 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
             .collect()
     };
     let cover_template = cover_template(ctx.style)?;
+    let sections = key_names(ctx.sections);
     let options = EmitOptions {
-        sections: ctx.sections,
+        sections: &sections,
         images: &images,
         cover_template: cover_template.as_deref(),
         volume: group.volume.as_ref(),
@@ -1166,7 +1167,7 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
         build_epub_file(
             group,
             ctx.style,
-            ctx.sections,
+            &sections,
             &images,
             ctx.fonts,
             cli,
@@ -1236,7 +1237,7 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
         build_epub_file(
             group,
             ctx.style,
-            ctx.sections,
+            &sections,
             &images,
             ctx.fonts,
             cli,
@@ -1399,7 +1400,7 @@ fn update_command(opts: &UpdateArgs) -> ExitCode {
 fn build_epub_file(
     group: &Group,
     style: &sep_core::style::Style,
-    sections: &BTreeSet<ContentKey>,
+    sections: &BTreeSet<String>,
     images: &std::collections::BTreeMap<String, sep_typst::images::Image>,
     fonts: &Fonts,
     cli: &BuildArgs,

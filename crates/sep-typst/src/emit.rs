@@ -6,7 +6,6 @@ use sep_core::model::{
     Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, ListNumbering, Meta, NoteRef,
     NoteTable, Section, Table, TableCell, TocItem,
 };
-use sep_core::sections::{ContentKey, selected_sections};
 use sep_core::style::Style;
 
 use crate::escape::{escape_code, escape_string, escape_text, guard_line_start, safe_id};
@@ -19,7 +18,7 @@ use crate::world::FIGURES_PREFIX;
 
 #[derive(Clone, Copy)]
 pub struct EmitOptions<'a> {
-    pub sections: &'a BTreeSet<ContentKey>,
+    pub sections: &'a BTreeSet<String>,
     pub images: &'a BTreeMap<String, crate::images::Image>,
     pub cover_template: Option<&'a str>,
     pub volume: Option<&'a Meta>,
@@ -29,7 +28,7 @@ pub struct EmitOptions<'a> {
 
 impl Default for EmitOptions<'_> {
     fn default() -> Self {
-        static NONE: BTreeSet<ContentKey> = BTreeSet::new();
+        static NONE: BTreeSet<String> = BTreeSet::new();
         static NO_IMAGES: BTreeMap<String, crate::images::Image> = BTreeMap::new();
         static NO_RAW: BTreeSet<usize> = BTreeSet::new();
         EmitOptions {
@@ -59,7 +58,7 @@ enum NoteKind {
 struct Ctx<'a> {
     view: &'a View<'a>,
     images: &'a BTreeMap<String, crate::images::Image>,
-    sections: &'a BTreeSet<ContentKey>,
+    sections: &'a BTreeSet<String>,
     merged: bool,
     doc_id: String,
     region: String,
@@ -964,7 +963,7 @@ fn table_of_contents(toc: &[TocItem], back: &[Section], ctx: &mut Ctx<'_>) -> Op
 
     let dropped: HashSet<String> = back
         .iter()
-        .filter(|section| !ctx.sections.iter().any(|key| key.name() == section.key))
+        .filter(|section| !ctx.sections.contains(&section.key))
         .map(|section| section.label.to_lowercase())
         .collect();
     let page_numbers = ctx.view.bool("toc.pageNumbers");
@@ -1209,7 +1208,7 @@ fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
         .iter()
         .filter(|a| a.kind == AttachmentKind::Notes)
         .collect();
-    if ctx.notes_style == "appendix" && ctx.sections.contains(&ContentKey::Notes) {
+    if ctx.notes_style == "appendix" && ctx.sections.contains("notes") {
         for extra in notes_attached {
             let extra = extra.clone();
             out.extend(in_region(ctx, "notes", |ctx| {
@@ -1218,13 +1217,14 @@ fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
         }
     }
 
-    for section in selected_sections(doc, ctx.sections) {
+    let sections = ctx.sections;
+    for section in doc.back.iter().filter(|s| sections.contains(&s.key)) {
         out.extend(in_region(ctx, &section.key, |ctx| {
             render_blocks(&section.blocks, ctx)
         }));
     }
 
-    if ctx.sections.contains(&ContentKey::Supplements) {
+    if ctx.sections.contains("supplements") {
         let supplements: Vec<Attachment> = doc
             .attachments
             .iter()
