@@ -1,0 +1,11 @@
+[package]
+name = "typesep-model"
+description = "typesep document model: what a source parses to and what the renderers read"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

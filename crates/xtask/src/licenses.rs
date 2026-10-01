@@ -5,7 +5,7 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-const SHIPPED: &str = "sep-cli";
+const SHIPPED: &str = "typesep";
 
 const TARGETS: [&str; 4] = [
     "x86_64-unknown-linux-gnu",

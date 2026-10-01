@@ -1,0 +1,30 @@
+[package]
+name = "typesep"
+description = "The typesep command and its command-line surface"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "typesep"
+path = "src/main.rs"
+
+[dependencies]
+typesep-model.workspace = true
+typesep-style.workspace = true
+typesep-html.workspace = true
+typesep-net.workspace = true
+typesep-typst.workspace = true
+typesep-epub.workspace = true
+source-sep.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+clap_mangen.workspace = true
+
+[dev-dependencies]
+dirs.workspace = true
+regex.workspace = true
+tempfile.workspace = true
+serde_json.workspace = true
+zip.workspace = true

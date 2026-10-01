@@ -1,0 +1,15 @@
+[package]
+name = "typesep-style"
+description = "typesep style schema: the options, the presets, and how a style is resolved and read"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+typesep-html.workspace = true
+thiserror.workspace = true
+saphyr-parser.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

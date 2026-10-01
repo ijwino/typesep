@@ -1,0 +1,14 @@
+[package]
+name = "typesep-epub"
+description = "typesep EPUB builder: the document model as EPUB 3, the maths as MathML"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+typesep-model.workspace = true
+typesep-style.workspace = true
+typesep-typst.workspace = true
+zip.workspace = true
+time.workspace = true

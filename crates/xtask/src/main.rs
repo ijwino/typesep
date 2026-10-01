@@ -122,7 +122,7 @@ const DEFAULT_EXEC: &str = "target/debug/typesep dump model {} --sections all --
 /// The corpus is thirty SEP entries and the models they parse to. It is not in this
 /// repository: the entries are copyright their authors and the SEP's Terms of Use grant no
 /// right to redistribute them, so it lives outside the tree. `TYPESEP_TEST_CORPUS` names the
-/// directory; crates/sep-cli/tests/model.rs describes what it holds.
+/// directory; crates/typesep/tests/model.rs describes what it holds.
 fn corpus_dir() -> PathBuf {
     let named = |name: &str| {
         std::env::var_os(name)

@@ -53,7 +53,7 @@ that is easier to copy.
 ## License
 
 typesep is MIT ([LICENSE](LICENSE)). The TeX Gyre fonts inside it are under the
-[GUST Font License](crates/sep-typst/fonts/GUST-FONT-LICENSE.txt), and the licenses of the
+[GUST Font License](crates/typesep-typst/fonts/GUST-FONT-LICENSE.txt), and the licenses of the
 crates it is built from come with each release as `THIRD-PARTY-LICENSES.txt`.
 
 ### The entries

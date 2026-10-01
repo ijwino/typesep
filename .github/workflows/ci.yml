@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo run -q -p sep-cli --bin typesep --locked -- reference > "$RUNNER_TEMP/reference.md"
+          cargo run -q -p typesep --bin typesep --locked -- reference > "$RUNNER_TEMP/reference.md"
           diff -u docs/style-reference.md "$RUNNER_TEMP/reference.md" \
             || { echo "docs/style-reference.md is stale: run make docs" >&2; exit 1; }
 

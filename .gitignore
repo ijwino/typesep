@@ -9,6 +9,6 @@ typesep.config.yaml
 # The fixture corpus is thirty SEP entries and what they parse and typeset to. The entries are
 # copyright their authors and the SEP's Terms of Use grant no right to redistribute them,
 # so the corpus lives outside the tree, under TYPESEP_TEST_CORPUS.
-crates/sep-cli/tests/data/
-crates/sep-cli/tests/snapshots/model/
-crates/sep-cli/tests/snapshots/render/
+crates/typesep/tests/data/
+crates/typesep/tests/snapshots/model/
+crates/typesep/tests/snapshots/render/

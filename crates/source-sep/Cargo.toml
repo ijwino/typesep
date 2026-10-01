@@ -1,0 +1,24 @@
+[package]
+name = "source-sep"
+description = "typesep source for the Stanford Encyclopedia of Philosophy: its addresses, its pages, and its parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+typesep-model.workspace = true
+typesep-html.workspace = true
+typesep-net.workspace = true
+url.workspace = true
+thiserror.workspace = true
+scraper.workspace = true
+ego-tree.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+typesep-net = { workspace = true, features = ["testing"] }
+typesep-style.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

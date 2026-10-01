@@ -28,7 +28,7 @@ baselines: release
 	cargo run -q -p xtask -- baselines $(ARGS)
 
 baselines-pages:
-	cargo test -q --release -p sep-cli --test render -- --ignored
+	cargo test -q --release -p typesep --test render -- --ignored
 
 licenses:
 	cargo run -q -p xtask -- licenses

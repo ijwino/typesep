@@ -8,7 +8,7 @@ use regex::Regex;
 /// The runs the render snapshots are made of, and the one place they are listed. Each run
 /// typesets its entries to PDF and EPUB with its arguments; the harness adds --library, -o,
 /// --format, --keep-typst and -v. The manifest records every invocation, and the test in
-/// crates/sep-cli/tests/render.rs replays what the manifest says.
+/// crates/typesep/tests/render.rs replays what the manifest says.
 const RUNS: [Run; 4] = [
     // Every corpus entry, the default style, every section: what the model snapshots hold.
     Run {
