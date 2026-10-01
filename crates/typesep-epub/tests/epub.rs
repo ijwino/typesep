@@ -795,7 +795,7 @@ fn notes_the_document_holds_are_an_appendix_in_the_order_the_text_refers_to_them
         .unwrap_or_else(|| panic!("{page}"));
     let second = page.find(r#"id="cite_note-2""#).unwrap();
     let never = page
-        .find(r#"id="cite_note-9"><p class="flush">. Never referred to.</p>"#)
+        .find(r#"id="cite_note-9"><p>Never referred to.</p></aside>"#)
         .unwrap_or_else(|| panic!("{page}"));
     assert!(tenth < second && second < never, "{page}");
 

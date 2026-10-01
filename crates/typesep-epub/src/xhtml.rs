@@ -761,10 +761,15 @@ fn notes_html(notes: &[NoteBody], ctx: &mut Ctx) -> String {
             let id_attr = ctx.id_attr(id);
             let mut blocks = note.blocks.iter();
             let first = blocks.next().map(String::as_str).unwrap_or("");
+            // A note the document holds that its text never refers to has no label to show.
+            let unreferenced = note.ref_id.is_none()
+                && note.label.is_empty()
+                && ctx.own_notes.contains_key(&note.id);
             let (lead, rest): (String, String) = match first
                 .strip_prefix("<p>")
                 .and_then(|inner| inner.strip_suffix("</p>"))
             {
+                _ if unreferenced => (String::new(), note.blocks.concat()),
                 Some(inner) => (
                     format!("<p class=\"flush\">{back} {inner}</p>"),
                     blocks.cloned().collect(),
