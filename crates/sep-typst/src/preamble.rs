@@ -279,15 +279,15 @@ pub const EMITTERS: &[Emitter] = &[
             } else {
                 format!("({},)", escape_string(&input.byline))
             };
+            let description = if input.subject.is_empty() {
+                "none".to_owned()
+            } else {
+                escape_string(&input.subject)
+            };
             vec![
                 format!(
-                    "#set document(title: {}, author: {author}, description: {})",
+                    "#set document(title: {}, author: {author}, description: {description})",
                     escape_string(&input.title),
-                    escape_string(if input.subject.is_empty() {
-                        "Stanford Encyclopedia of Philosophy"
-                    } else {
-                        &input.subject
-                    })
                 ),
                 format!(
                     "#set text(size: {}, top-edge: 1em, bottom-edge: \"baseline\")",
@@ -936,6 +936,23 @@ mod tests {
         assert!(
             !text.contains("#set page(columns:"),
             "one column asks for nothing"
+        );
+        assert!(
+            text.contains("#set document(title: \"\", author: (), description: none)"),
+            "{text}"
+        );
+        let input = PreambleInput {
+            title: "Pleasure".into(),
+            byline: "A. Author".into(),
+            subject: "A \"Publisher\"".into(),
+            ..PreambleInput::default()
+        };
+        let (text, _) = build_preamble(&view, &input, None);
+        assert!(
+            text.contains(
+                "#set document(title: \"Pleasure\", author: (\"A. Author\",), description: \"A \\\"Publisher\\\"\")"
+            ),
+            "the publisher is the PDF's subject: {text}"
         );
     }
 
