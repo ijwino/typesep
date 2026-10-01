@@ -2643,6 +2643,7 @@ dependencies = [
  "sep-typst",
  "serde_json",
  "tempfile",
+ "zip",
 ]
 
 [[package]]

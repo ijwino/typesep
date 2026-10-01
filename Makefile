@@ -1,4 +1,4 @@
-.PHONY: build release dist test docs licenses licenses-check parity render-check epub-check baselines clean
+.PHONY: build release dist test docs licenses licenses-check parity render-check epub-check baselines baselines-pages clean
 
 build:
 	cargo build
@@ -26,6 +26,9 @@ epub-check: release
 
 baselines: release
 	cargo run -q -p xtask -- baselines $(ARGS)
+
+baselines-pages:
+	cargo test -q --release -p sep-cli --test render -- --ignored
 
 licenses:
 	cargo run -q -p xtask -- licenses
