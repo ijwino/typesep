@@ -12,8 +12,9 @@ use sep_core::entry::{
 use sep_core::fetch::{DEFAULT_DELAY_MS, DEFAULT_TIMEOUT_MS, Fetcher, Loudness};
 use sep_core::figures::fetch_figures;
 use sep_core::library::{Library, default_library_dir};
-use sep_core::model::Doc;
+use sep_core::model::{Doc, Meta};
 use sep_core::output::{file_name_for, job_name_for, output_file};
+use sep_core::parse::volume_meta;
 use sep_core::sections::{ContentKey, default_sections_text, parse_content_keys};
 use sep_core::style::shorthand::{choices_for, is_boolean, shorthand};
 use sep_core::style::{
@@ -755,31 +756,34 @@ fn style_command(opts: &StyleCommandOptions, matches: &ArgMatches) -> ExitCode {
 struct Group<'a> {
     name: String,
     docs: Vec<&'a Doc>,
-    volume_title: Option<String>,
+    volume: Option<Meta>,
 }
 
 fn entry_name(doc: &Doc) -> String {
-    if doc.meta.edition.is_empty() {
-        doc.meta.slug.clone()
+    if doc.meta.origin.edition.is_empty() {
+        doc.meta.id.clone()
     } else {
-        format!("{}-{}", doc.meta.slug, doc.meta.edition)
+        format!("{}-{}", doc.meta.id, doc.meta.origin.edition)
     }
 }
 
 fn group_entries<'a>(docs: &'a [Doc], merge: Option<&str>) -> Vec<Group<'a>> {
     match merge {
         Some(_) if docs.is_empty() => Vec::new(),
-        Some(name) => vec![Group {
-            name: name.to_owned(),
-            docs: docs.iter().collect(),
-            volume_title: Some(name.to_owned()),
-        }],
+        Some(name) => {
+            let docs: Vec<&Doc> = docs.iter().collect();
+            vec![Group {
+                name: name.to_owned(),
+                volume: Some(volume_meta(&docs, name)),
+                docs,
+            }]
+        }
         None => docs
             .iter()
             .map(|doc| Group {
                 name: entry_name(doc),
                 docs: vec![doc],
-                volume_title: None,
+                volume: None,
             })
             .collect(),
     }
@@ -1089,7 +1093,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
                 let group = Group {
                     name: entry_name(&loaded.doc),
                     docs: vec![&loaded.doc],
-                    volume_title: None,
+                    volume: None,
                 };
                 render_group(&group, &ctx)?;
                 built += 1;
@@ -1145,7 +1149,7 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
         sections: ctx.sections,
         images: &images,
         cover_template: cover_template.as_deref(),
-        volume_title: group.volume_title.as_deref(),
+        volume: group.volume.as_ref(),
         fonts: Some(ctx.fonts),
         ..Default::default()
     };
@@ -1218,7 +1222,7 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
             .moved_notes
             .iter()
             .map(|note| match group.docs.get(note.entry) {
-                Some(doc) if group.docs.len() > 1 => format!("{}: {note}", doc.meta.slug),
+                Some(doc) if group.docs.len() > 1 => format!("{}: {note}", doc.meta.id),
                 _ => note.to_string(),
             }),
     );
@@ -1366,12 +1370,12 @@ fn update_command(opts: &UpdateArgs) -> ExitCode {
             if status.changed() {
                 changed += 1;
             }
-            let revision = if loaded.doc.meta.revision.is_empty() {
+            let revision = if loaded.doc.meta.origin.revision.is_empty() {
                 "(no revision date)"
             } else {
-                &loaded.doc.meta.revision
+                &loaded.doc.meta.origin.revision
             };
-            outln!("{:<28} {revision:<26} {status}", loaded.doc.meta.slug);
+            outln!("{:<28} {revision:<26} {status}", loaded.doc.meta.id);
             Ok(())
         },
     ) {
@@ -1410,7 +1414,7 @@ fn build_epub_file(
         EpubOptions {
             sections,
             images,
-            volume_title: group.volume_title.as_deref(),
+            volume: group.volume.as_ref(),
             fonts,
         },
     ) {
@@ -1899,9 +1903,9 @@ mod tests {
     #[test]
     fn archived_editions_get_their_own_file_name() {
         let mut doc = Doc::default();
-        doc.meta.slug = "kant".into();
+        doc.meta.id = "kant".into();
         assert_eq!(entry_name(&doc), "kant");
-        doc.meta.edition = "sum2020".into();
+        doc.meta.origin.edition = "sum2020".into();
         assert_eq!(entry_name(&doc), "kant-sum2020");
     }
 }

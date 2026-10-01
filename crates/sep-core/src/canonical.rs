@@ -12,8 +12,11 @@ pub fn canonical_json<T: Serialize + ?Sized>(value: &T) -> serde_json::Result<St
 
 pub fn model_json(doc: &Doc) -> serde_json::Result<String> {
     let mut value = serde_json::to_value(doc)?;
-    if let Some(meta) = value.get_mut("meta").and_then(Value::as_object_mut) {
-        meta.remove("fetchedAt");
+    if let Some(origin) = value
+        .pointer_mut("/meta/origin")
+        .and_then(Value::as_object_mut)
+    {
+        origin.remove("retrieved");
     }
     let mut text = serde_json::to_string_pretty(&value)?;
     text.push('\n');
@@ -23,16 +26,18 @@ pub fn model_json(doc: &Doc) -> serde_json::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Meta;
+    use crate::model::{Meta, Origin};
 
     #[test]
     fn keys_are_sorted_and_the_timestamp_is_dropped() {
         let doc = Doc {
             meta: Meta {
-                slug: "turing-machine".into(),
-                fetched_at: "2026-09-03".into(),
-                edition: "".into(),
-                source_url: "https://plato.stanford.edu/entries/turing-machine/".into(),
+                id: "turing-machine".into(),
+                origin: Origin {
+                    url: "https://plato.stanford.edu/entries/turing-machine/".into(),
+                    retrieved: "2026-09-03".into(),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             ..Default::default()
@@ -42,26 +47,35 @@ mod tests {
             text,
             r#"{
   "attachments": [],
+  "back": [],
   "body": [],
+  "front": [],
   "links": {
     "notes": [],
     "supplements": []
   },
   "meta": {
-    "authorLine": "",
-    "authors": [],
-    "copyrightYear": "",
-    "edition": "",
-    "editionLabel": "",
-    "firstPublished": "",
+    "byline": "",
+    "contributors": [],
+    "dateline": "",
+    "id": "turing-machine",
+    "lang": "",
     "macros": {},
-    "revision": "",
-    "slug": "turing-machine",
-    "sourceUrl": "https://plato.stanford.edu/entries/turing-machine/",
+    "origin": {
+      "edition": "",
+      "editionLabel": "",
+      "publisher": "",
+      "revision": "",
+      "source": "",
+      "url": "https://plato.stanford.edu/entries/turing-machine/"
+    },
+    "rights": {
+      "notices": [],
+      "statement": "",
+      "terms": ""
+    },
     "title": ""
   },
-  "preamble": [],
-  "sections": {},
   "toc": [],
   "warnings": []
 }
@@ -70,7 +84,7 @@ mod tests {
         assert!(
             canonical_json(&doc)
                 .unwrap()
-                .contains("\"fetchedAt\": \"2026-09-03\""),
+                .contains("\"retrieved\": \"2026-09-03\""),
             "canonical_json keeps every field"
         );
         assert_eq!(

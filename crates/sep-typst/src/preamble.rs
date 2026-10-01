@@ -10,7 +10,7 @@ pub const HEADING_KEYS: [&str; 4] = ["h1", "h2", "h3", "h4"];
 #[derive(Debug, Clone, Default)]
 pub struct PreambleInput {
     pub title: String,
-    pub author_line: String,
+    pub byline: String,
     pub edition: String,
     pub date: String,
     pub subject: String,
@@ -274,10 +274,10 @@ pub const EMITTERS: &[Emitter] = &[
                 ctx.warn("advanced.documentClass has no Typst equivalent and is ignored");
             }
             let input = ctx.input;
-            let author = if input.author_line.is_empty() {
+            let author = if input.byline.is_empty() {
                 "()".to_owned()
             } else {
-                format!("({},)", escape_string(&input.author_line))
+                format!("({},)", escape_string(&input.byline))
             };
             vec![
                 format!(
@@ -821,7 +821,7 @@ pub fn template_expr(text: &str, input: &PreambleInput) -> String {
                         .to_owned(),
                 ),
                 "title" => Some(content_block(&input.title)),
-                "author" => Some(content_block(&input.author_line)),
+                "author" => Some(content_block(&input.byline)),
                 "edition" => Some(content_block(&input.edition)),
                 "date" => Some(content_block(&input.date)),
                 _ => None,
@@ -1014,7 +1014,7 @@ mod tests {
     fn header_tokens_expand_to_typst_expressions() {
         let input = PreambleInput {
             title: "Turing Machines".into(),
-            author_line: "David Barker-Plummer".into(),
+            byline: "David Barker-Plummer".into(),
             ..PreambleInput::default()
         };
         assert_eq!(template_expr("", &input), "[]");

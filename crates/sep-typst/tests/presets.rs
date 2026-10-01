@@ -1,4 +1,4 @@
-use sep_core::model::{Block, Doc, Inline, List, ListNumbering, Meta};
+use sep_core::model::{Block, Doc, Inline, List, ListNumbering, Meta, Origin};
 use sep_core::style::{ResolveOptions, list_presets, resolve_style};
 use sep_typst::{EmitOptions, Fonts, SepWorld, compile_pdf, emit_document};
 
@@ -18,10 +18,13 @@ fn para(value: &str) -> Block {
 fn doc() -> Doc {
     Doc {
         meta: Meta {
-            slug: "pleasure".to_owned(),
+            id: "pleasure".to_owned(),
             title: "Pleasure".to_owned(),
-            author_line: "A. Author".to_owned(),
-            source_url: "https://plato.stanford.edu/entries/pleasure/".to_owned(),
+            byline: "A. Author".to_owned(),
+            origin: Origin {
+                url: "https://plato.stanford.edu/entries/pleasure/".to_owned(),
+                ..Origin::default()
+            },
             ..Meta::default()
         },
         body: vec![

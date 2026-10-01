@@ -9,7 +9,6 @@ use sep_core::sections::{ContentKey, selected_sections};
 use sep_typst::images::Image;
 use sep_typst::mathml::Formula;
 use sep_typst::style::View;
-use sep_typst::text::dateline;
 
 pub fn esc(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -545,8 +544,8 @@ pub fn entry_html(doc: &Doc, ctx: &mut Ctx, sections: &BTreeSet<ContentKey>) -> 
         .collect();
     ctx.attachment_index = None;
     ctx.self_urls = BTreeSet::new();
-    if !doc.meta.source_url.is_empty() {
-        let url = &doc.meta.source_url;
+    if !doc.meta.origin.url.is_empty() {
+        let url = &doc.meta.origin.url;
         let directory = match url.rfind('/') {
             Some(at) => &url[..=at],
             None => "",
@@ -558,11 +557,13 @@ pub fn entry_html(doc: &Doc, ctx: &mut Ctx, sections: &BTreeSet<ContentKey>) -> 
     ctx.written = BTreeSet::new();
 
     let mut parts = vec![format!("<h1>{}</h1>", esc(&doc.meta.title))];
-    let dates = dateline(&doc.meta);
-    if !dates.is_empty() {
-        parts.push(format!("<p class=\"flush\"><em>{}</em></p>", esc(&dates)));
+    if !doc.meta.dateline.is_empty() {
+        parts.push(format!(
+            "<p class=\"flush\"><em>{}</em></p>",
+            esc(&doc.meta.dateline)
+        ));
     }
-    parts.extend(blocks_html(&doc.preamble, ctx));
+    parts.extend(blocks_html(&doc.front, ctx));
     parts.extend(blocks_html(&doc.body, ctx));
 
     if ctx.view.str("notes.style") == "appendix" && sections.contains(&ContentKey::Notes) {
@@ -574,8 +575,8 @@ pub fn entry_html(doc: &Doc, ctx: &mut Ctx, sections: &BTreeSet<ContentKey>) -> 
             parts.push(attachment_html(extra, ctx));
         }
     }
-    for (_, _, blocks) in selected_sections(doc, sections) {
-        parts.extend(blocks_html(blocks, ctx));
+    for section in selected_sections(doc, sections) {
+        parts.extend(blocks_html(&section.blocks, ctx));
     }
     if sections.contains(&ContentKey::Supplements) {
         for extra in doc

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use sep_core::model::{AttachmentKind, Doc, TocItem};
-use sep_core::sections::{ContentKey, SECTION_LABELS};
+use sep_core::sections::ContentKey;
 use sep_typst::style::View;
 
 use crate::xhtml::{esc, xml_id};
@@ -59,10 +59,11 @@ pub fn nav_items(
     sections: &BTreeSet<ContentKey>,
     ids: &BTreeSet<String>,
 ) -> String {
-    let dropped: BTreeSet<String> = SECTION_LABELS
+    let dropped: BTreeSet<String> = doc
+        .back
         .iter()
-        .filter(|(key, _)| !sections.contains(key))
-        .map(|(_, label)| label.to_lowercase())
+        .filter(|section| !sections.iter().any(|key| key.name() == section.key))
+        .map(|section| section.label.to_lowercase())
         .collect();
     let appendix = view.str("notes.style") == "appendix";
     let extras: Vec<String> = doc

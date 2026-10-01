@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 
 use sep_core::model::{
-    Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, Meta, NoteRef, NoteTable, TocItem,
+    Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, Meta, NoteRef, NoteTable, Origin,
+    TocItem,
 };
 use sep_core::sections::{ALL_CONTENT_KEYS, ContentKey};
 use sep_core::style::{ResolveOptions, Style, resolve_style};
@@ -38,9 +39,12 @@ fn para(value: &str) -> Block {
 fn doc(body: Vec<Block>) -> Doc {
     Doc {
         meta: Meta {
-            slug: "x".into(),
+            id: "x".into(),
             title: "An Entry".into(),
-            source_url: "https://plato.stanford.edu/entries/x/".into(),
+            origin: Origin {
+                url: "https://plato.stanford.edu/entries/x/".into(),
+                ..Default::default()
+            },
             ..Default::default()
         },
         body,
@@ -256,13 +260,17 @@ fn an_epub_of_no_entry_is_an_error() {
     let images = BTreeMap::new();
     let sections: BTreeSet<ContentKey> = ALL_CONTENT_KEYS.into_iter().collect();
     let fonts = Fonts::embedded();
+    let volume = Meta {
+        title: "vol".into(),
+        ..Default::default()
+    };
     let built = build_epub(
         &[],
         &style,
         EpubOptions {
             sections: &sections,
             images: &images,
-            volume_title: Some("vol"),
+            volume: Some(&volume),
             fonts: &fonts,
         },
     );
@@ -296,7 +304,7 @@ fn an_svg_image_by_reference_does_not_mark_its_document_as_svg() {
         EpubOptions {
             sections: &sections,
             images: &images,
-            volume_title: None,
+            volume: None,
             fonts: &fonts,
         },
     )

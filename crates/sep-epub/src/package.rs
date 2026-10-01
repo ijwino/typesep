@@ -1,7 +1,5 @@
-use sep_core::model::Doc;
-use sep_typst::text::{
-    MERGED_RIGHTS, PERSONAL_USE_NOTICE, SEP_NAME, copyright_line, fetch_date_span,
-};
+use sep_core::model::{Doc, Meta};
+use sep_typst::text::fetch_date_span;
 
 use crate::xhtml::esc;
 
@@ -47,45 +45,50 @@ pub fn content_opf(
     docs: &[&Doc],
     chapters: &[Chapter],
     assets: &[(std::path::PathBuf, String)],
-    volume_title: Option<&str>,
+    volume: Option<&Meta>,
 ) -> String {
     let first = &docs[0].meta;
     let merged = docs.len() > 1;
-    let title = volume_title.unwrap_or(&first.title);
-    let author = if merged {
-        SEP_NAME.to_owned()
+    let volume = volume.unwrap_or(first);
+    let title = &volume.title;
+    // A volume of several entries is the publisher's; one entry, even typeset as a volume,
+    // is its authors'. A single entry's statement is a line on a page and needs its stop
+    // here; a volume's is a sentence already.
+    let (author, held) = if merged {
+        (&volume.origin.publisher, volume)
     } else {
-        first.author_line.clone()
+        (&first.byline, first)
     };
-    let copyright = if merged {
-        MERGED_RIGHTS.to_owned()
-    } else {
-        match copyright_line(first) {
-            line if line.is_empty() => String::new(),
-            line => format!("{line}."),
-        }
+    let statement = match held.rights.statement.as_str() {
+        "" => String::new(),
+        line if merged => line.to_owned(),
+        line => format!("{line}."),
+    };
+    let publisher = match held.origin.publisher.as_str() {
+        "" => String::new(),
+        name => format!("{name}."),
     };
     let rights = [
-        copyright.as_str(),
-        &format!("{SEP_NAME}."),
-        PERSONAL_USE_NOTICE,
+        statement.as_str(),
+        publisher.as_str(),
+        held.rights.terms.as_str(),
     ]
     .iter()
     .filter(|part| !part.is_empty())
     .cloned()
     .collect::<Vec<_>>()
     .join(" ");
-    let metas: Vec<&sep_core::model::Meta> = docs.iter().map(|d| &d.meta).collect();
+    let metas: Vec<&Meta> = docs.iter().map(|d| &d.meta).collect();
     let retrieved = fetch_date_span(&metas).map(|(_, last)| last);
     let identifier = if merged {
         docs.iter()
-            .map(|d| d.meta.slug.clone())
+            .map(|d| d.meta.id.clone())
             .collect::<Vec<_>>()
             .join("+")
-    } else if first.slug.is_empty() {
+    } else if first.id.is_empty() {
         "entry".to_owned()
     } else {
-        first.slug.clone()
+        first.id.clone()
     };
 
     let mut manifest = vec![
@@ -135,8 +138,8 @@ pub fn content_opf(
 </package>"#,
         esc(&identifier),
         esc(title),
-        esc(&author),
-        esc(&first.source_url),
+        esc(author),
+        esc(&first.origin.url),
         esc(&rights),
         now_utc(),
         manifest.join("\n"),

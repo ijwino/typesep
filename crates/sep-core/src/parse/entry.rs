@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use ego_tree::NodeId;
-use scraper::{CaseSensitivity, ElementRef, Html, Node};
+use scraper::{CaseSensitivity, ElementRef, Html, Node, Selector};
 use url::Url;
 
 use super::dom::{self, Ref, lazy_selector};
@@ -9,8 +9,9 @@ use super::js::{self, DOT, WORD, WS, lazy_regex};
 use super::metadata::{MetadataSource, parse_metadata};
 use crate::model::{
     Align, Attachment, AttachmentKind, Block, Doc, EntryLinks, Figure, Inline, List, ListNumbering,
-    MathMode, NoteRef, NoteTable, Sections, Table, TableCell, TocItem,
+    MathMode, NoteRef, NoteTable, Section, Table, TableCell, TocItem,
 };
+use crate::sections::{ContentKey, SECTION_LABELS};
 
 lazy_regex!(MATH_RE = r"\\\(([\s\S]*?)\\\)|\\\[([\s\S]*?)\\\]");
 lazy_regex!(
@@ -179,34 +180,36 @@ pub fn parse_entry(html: &str, opts: &ParseOptions) -> Doc {
             fetched_at: opts.fetched_at,
         },
     );
-    let preamble = blocks_of_all(&mut ctx, dom::select(&document, &PREAMBLE));
+    let front = blocks_of_all(&mut ctx, dom::select(&document, &PREAMBLE));
     let toc = parse_toc(dom::select(&document, &TOC_LISTS));
     let body = blocks_of_all(&mut ctx, dom::select(&document, &MAIN_TEXT));
     let links = collect_entry_links(&document, opts.source_url);
 
-    let mut sections = Sections::default();
-    let slots = [
-        (&*BIBLIOGRAPHY, &mut sections.bibliography),
-        (&*ACADEMIC_TOOLS, &mut sections.academic_tools),
-        (
-            &*OTHER_INTERNET_RESOURCES,
-            &mut sections.other_internet_resources,
-        ),
-        (&*RELATED_ENTRIES, &mut sections.related_entries),
-    ];
-    for (selector, slot) in slots {
+    let mut back = Vec::new();
+    for (key, label) in SECTION_LABELS {
+        let selector: &Selector = match key {
+            ContentKey::Bib => &BIBLIOGRAPHY,
+            ContentKey::Academic => &ACADEMIC_TOOLS,
+            ContentKey::Oir => &OTHER_INTERNET_RESOURCES,
+            ContentKey::Related => &RELATED_ENTRIES,
+            ContentKey::Notes | ContentKey::Supplements => continue,
+        };
         let matched: Vec<ElementRef> = dom::select(&document, selector).collect();
         if !matched.is_empty() {
-            *slot = Some(blocks_of_all(&mut ctx, matched));
+            back.push(Section {
+                key: key.name().to_owned(),
+                label: label.to_owned(),
+                blocks: blocks_of_all(&mut ctx, matched),
+            });
         }
     }
 
     Doc {
         meta,
-        preamble,
+        front,
         toc,
         body,
-        sections,
+        back,
         links,
         attachments: Vec::new(),
         warnings: ctx.warnings(),
@@ -1089,7 +1092,7 @@ mod tests {
             ])
         );
         assert!(d.warnings.is_empty());
-        assert_eq!(value(&d.sections), json!({}));
+        assert_eq!(value(&d.back), json!([]));
         assert_eq!(value(&d.links), json!({ "notes": [], "supplements": [] }));
     }
 
@@ -1496,23 +1499,26 @@ mod tests {
     fn the_preamble_and_the_end_matter_sections_are_read() {
         let d = entry(
             "<div id=\"preamble\"><p>Pre</p></div><div id=\"main-text\"><h2 id=\"S\">S</h2></div>\
-             <div id=\"bibliography\"><ul class=\"hanging\"><li>Ref</li></ul></div><div id=\"related-entries\"><p><a href=\"../logic/\">logic</a></p></div>",
+             <div id=\"related-entries\"><p><a href=\"../logic/\">logic</a></p></div><div id=\"bibliography\"><ul class=\"hanging\"><li>Ref</li></ul></div>",
         );
         assert_eq!(
-            value(&d.preamble),
+            value(&d.front),
             json!([{ "type": "para", "children": [{ "type": "text", "value": "Pre" }] }])
         );
         assert_eq!(
             value(&d.body),
             json!([{ "type": "heading", "level": 2, "id": "S", "children": [{ "type": "text", "value": "S" }] }])
         );
-        let sections = value(&d.sections);
         assert_eq!(
-            sections.as_object().unwrap().keys().collect::<Vec<_>>(),
-            ["bibliography", "relatedEntries"]
+            d.back
+                .iter()
+                .map(|s| (s.key.as_str(), s.label.as_str()))
+                .collect::<Vec<_>>(),
+            [("bib", "Bibliography"), ("related", "Related Entries")],
+            "the sections there are, in the SEP's order rather than the page's"
         );
         assert_eq!(
-            sections["relatedEntries"],
+            value(&d.back[1].blocks),
             json!([{ "type": "para", "children": [{ "type": "link", "href": "https://plato.stanford.edu/entries/logic/", "internal": false, "children": [{ "type": "text", "value": "logic" }] }] }])
         );
     }

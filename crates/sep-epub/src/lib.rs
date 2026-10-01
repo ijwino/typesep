@@ -6,7 +6,7 @@ pub mod xhtml;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use sep_core::model::Doc;
+use sep_core::model::{Doc, Meta};
 use sep_core::sections::ContentKey;
 use sep_typst::fonts::Fonts;
 use sep_typst::images::Image;
@@ -38,7 +38,7 @@ impl std::error::Error for EpubError {}
 pub struct EpubOptions<'a> {
     pub sections: &'a BTreeSet<ContentKey>,
     pub images: &'a BTreeMap<String, Image>,
-    pub volume_title: Option<&'a str>,
+    pub volume: Option<&'a Meta>,
     pub fonts: &'a Fonts,
 }
 
@@ -169,7 +169,7 @@ pub fn build_epub(
     container
         .add(
             "OEBPS/content.opf",
-            package::content_opf(docs, &chapters, &ctx.assets, options.volume_title).as_bytes(),
+            package::content_opf(docs, &chapters, &ctx.assets, options.volume).as_bytes(),
         )
         .map_err(zip_error)?;
 

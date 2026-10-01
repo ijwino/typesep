@@ -291,7 +291,7 @@ pub fn load_entry(
     if source.writes() {
         source
             .library
-            .record_entry(&target.url, &doc.meta.title, &doc.meta.revision)?;
+            .record_entry(&target.url, &doc.meta.title, &doc.meta.origin.revision)?;
     }
 
     let mut macro_sources: BTreeSet<String> = BTreeSet::new();
@@ -363,9 +363,11 @@ impl UpdateStatus {
     pub fn of(entry: &LoadedEntry) -> Self {
         match &entry.previous_revision {
             None => UpdateStatus::New,
-            Some(previous) if *previous != entry.doc.meta.revision => UpdateStatus::Revised {
-                previous: previous.clone(),
-            },
+            Some(previous) if *previous != entry.doc.meta.origin.revision => {
+                UpdateStatus::Revised {
+                    previous: previous.clone(),
+                }
+            }
             Some(_) => UpdateStatus::Unchanged,
         }
     }
@@ -388,7 +390,11 @@ impl std::fmt::Display for UpdateStatus {
 pub fn related_entry_urls(doc: &Doc) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for block in doc.sections.related_entries.iter().flatten() {
+    let related = doc
+        .back
+        .iter()
+        .filter(|section| section.key == ContentKey::Related.name());
+    for block in related.flat_map(|section| section.blocks.iter()) {
         links_in_block(block, &mut |href| {
             if href.contains("/entries/") && seen.insert(href.to_owned()) {
                 out.push(href.to_owned());
@@ -955,12 +961,12 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         )
         .unwrap()
         .doc;
-        assert_eq!(doc.meta.slug, "turing-machine");
+        assert_eq!(doc.meta.id, "turing-machine");
         assert_eq!(doc.meta.title, "Turing Machines");
-        assert_eq!(doc.meta.revision, "Wed May 21, 2025");
-        assert_eq!(doc.meta.source_url, target.url);
-        assert_eq!(doc.meta.edition, "");
-        assert_eq!(doc.meta.fetched_at, "2026-09-03");
+        assert_eq!(doc.meta.origin.revision, "Wed May 21, 2025");
+        assert_eq!(doc.meta.origin.url, target.url);
+        assert_eq!(doc.meta.origin.edition, "");
+        assert_eq!(doc.meta.origin.retrieved, "2026-09-03");
         assert_eq!(doc.meta.macros.len(), 1);
         assert_eq!(doc.meta.macros["opL"].body, "\\mathbin{L}");
         assert_eq!(doc.body.len(), 1);
@@ -1016,9 +1022,9 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         )
         .unwrap()
         .doc;
-        assert_eq!(doc.meta.edition, "sum2026");
-        assert_eq!(doc.meta.edition_label, "Summer 2026 Edition");
-        assert_eq!(doc.meta.fetched_at, "", "no meta.json, no date");
+        assert_eq!(doc.meta.origin.edition, "sum2026");
+        assert_eq!(doc.meta.origin.edition_label, "Summer 2026 Edition");
+        assert_eq!(doc.meta.origin.retrieved, "", "no meta.json, no date");
         assert!(doc.body.is_empty());
     }
 }

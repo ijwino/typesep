@@ -11,15 +11,10 @@ pub fn figure_urls(doc: &Doc) -> Vec<String> {
         }
     };
     let mut blocks: Vec<&Block> = Vec::new();
-    blocks.extend(doc.preamble.iter());
+    blocks.extend(doc.front.iter());
     blocks.extend(doc.body.iter());
-    for section in [
-        &doc.sections.bibliography,
-        &doc.sections.academic_tools,
-        &doc.sections.other_internet_resources,
-        &doc.sections.related_entries,
-    ] {
-        blocks.extend(section.iter().flat_map(|s| s.iter()));
+    for section in &doc.back {
+        blocks.extend(section.blocks.iter());
     }
     for attachment in &doc.attachments {
         blocks.extend(attachment.blocks.iter());

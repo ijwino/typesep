@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use sep_core::model::{Attachment, AttachmentKind, Block, Doc, Inline, Meta, NoteRef, NoteTable};
+use sep_core::model::{
+    Attachment, AttachmentKind, Block, Doc, Inline, Meta, NoteRef, NoteTable, Origin,
+};
 use sep_core::style::{ResolveOptions, Style, resolve_style};
 use sep_typst::{Compiled, EmitOptions, Fonts, SepWorld, compile_pdf, emit_document};
 
@@ -58,9 +60,12 @@ fn entry(slug: &str, notes: &[(i64, usize)]) -> Doc {
     }
     Doc {
         meta: Meta {
-            slug: slug.to_owned(),
+            id: slug.to_owned(),
             title: slug.to_owned(),
-            source_url: format!("https://plato.stanford.edu/entries/{slug}/"),
+            origin: Origin {
+                url: format!("https://plato.stanford.edu/entries/{slug}/"),
+                ..Origin::default()
+            },
             ..Meta::default()
         },
         body,
@@ -77,12 +82,16 @@ fn entry(slug: &str, notes: &[(i64, usize)]) -> Doc {
 
 fn render(docs: &[&Doc], style: &Style) -> (String, Compiled) {
     let fonts = Fonts::embedded();
+    let volume = Meta {
+        title: "A volume".to_owned(),
+        ..Meta::default()
+    };
     let rendered = emit_document(
         docs,
         style,
         EmitOptions {
             fonts: Some(&fonts),
-            volume_title: (docs.len() > 1).then_some("A volume"),
+            volume: (docs.len() > 1).then_some(&volume),
             ..Default::default()
         },
     );

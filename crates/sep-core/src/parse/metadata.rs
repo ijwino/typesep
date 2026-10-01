@@ -4,7 +4,8 @@ use scraper::Html;
 
 use super::dom::{self, lazy_selector};
 use super::js::{self, WS, lazy_regex};
-use crate::model::Meta;
+use super::wording::{self, LANG, SEP_NAME, SOURCE};
+use crate::model::{Contributor, Meta, Origin};
 
 lazy_selector!(AUEDITABLE_H1 = "#aueditable > h1");
 lazy_selector!(H1 = "h1");
@@ -87,18 +88,31 @@ pub fn parse_metadata(document: &Html, src: &MetadataSource) -> Meta {
         .filter(|line| !line.is_empty())
         .collect();
 
+    let byline = format_authors(&authors);
     Meta {
-        slug: src.slug.to_owned(),
+        id: src.slug.to_owned(),
         title,
-        author_line: format_authors(&authors),
-        authors,
-        first_published,
-        revision,
-        copyright_year,
-        source_url: src.source_url.to_owned(),
-        edition: src.edition.to_owned(),
-        edition_label: edition_label(src.edition),
-        fetched_at: src.fetched_at.to_owned(),
+        contributors: authors
+            .into_iter()
+            .map(|name| Contributor {
+                name,
+                role: "author".to_owned(),
+            })
+            .collect(),
+        dateline: wording::dateline(&first_published, &revision),
+        rights: wording::rights(wording::copyright_line(&copyright_year, &byline)),
+        byline,
+        credit: String::new(),
+        lang: LANG.to_owned(),
+        origin: Origin {
+            source: SOURCE.to_owned(),
+            publisher: SEP_NAME.to_owned(),
+            url: src.source_url.to_owned(),
+            edition: src.edition.to_owned(),
+            edition_label: edition_label(src.edition),
+            revision,
+            retrieved: src.fetched_at.to_owned(),
+        },
         macros: BTreeMap::new(),
     }
 }
@@ -133,6 +147,10 @@ pub fn edition_label(edition: &str) -> String {
 mod tests {
     use super::*;
 
+    fn names(meta: &Meta) -> Vec<&str> {
+        meta.contributors.iter().map(|c| c.name.as_str()).collect()
+    }
+
     #[test]
     fn metadata_comes_off_the_page() {
         let html = r#"<html><body><div id="aueditable">
@@ -160,20 +178,39 @@ Raymond Turner &lt;<a href="mailto:r%40x">r@x</a>&gt;
                 fetched_at: "2026-09-01",
             },
         );
+        assert_eq!(meta.id, "computer-science");
         assert_eq!(meta.title, "The Philosophy of Computer Science");
         assert_eq!(
-            meta.authors,
+            names(&meta),
             ["Nicola Angius", "Giuseppe Primiero", "Raymond Turner"]
         );
+        assert!(meta.contributors.iter().all(|c| c.role == "author"));
         assert_eq!(
-            meta.author_line,
+            meta.byline,
             "Nicola Angius, Giuseppe Primiero, and Raymond Turner"
         );
-        assert_eq!(meta.first_published, "Tue Aug 20, 2013");
-        assert_eq!(meta.revision, "Thu Jan 25, 2024");
-        assert_eq!(meta.copyright_year, "2024");
-        assert_eq!(meta.edition_label, "Summer 2026 Edition");
-        assert_eq!(meta.fetched_at, "2026-09-01");
+        assert_eq!(
+            meta.dateline,
+            "First published Tue Aug 20, 2013; substantive revision Thu Jan 25, 2024"
+        );
+        assert_eq!(
+            meta.rights.statement,
+            "Copyright © 2024 by Nicola Angius, Giuseppe Primiero, and Raymond Turner"
+        );
+        assert_eq!(meta.rights.terms, wording::PERSONAL_USE_NOTICE);
+        assert_eq!(meta.rights.notices.len(), 1);
+        assert_eq!(meta.lang, "en");
+        assert_eq!(meta.credit, "");
+        assert_eq!(meta.origin.source, "sep");
+        assert_eq!(meta.origin.publisher, SEP_NAME);
+        assert_eq!(
+            meta.origin.url,
+            "https://plato.stanford.edu/entries/computer-science/"
+        );
+        assert_eq!(meta.origin.edition, "sum2026");
+        assert_eq!(meta.origin.revision, "Thu Jan 25, 2024");
+        assert_eq!(meta.origin.edition_label, "Summer 2026 Edition");
+        assert_eq!(meta.origin.retrieved, "2026-09-01");
         assert!(
             !serde_json::to_string(&meta).unwrap().contains('@'),
             "metadata holds no email addresses"
@@ -192,11 +229,11 @@ Raymond Turner &lt;<a href="mailto:r%40x">r@x</a>&gt;
             },
         );
         assert_eq!(meta.title, "Only a title");
-        assert_eq!(meta.authors, ["Ann Author"]);
-        assert_eq!(meta.author_line, "Ann Author");
-        assert_eq!(meta.copyright_year, "2020");
-        assert_eq!(meta.first_published, "");
-        assert_eq!(meta.edition_label, "");
+        assert_eq!(names(&meta), ["Ann Author"]);
+        assert_eq!(meta.byline, "Ann Author");
+        assert_eq!(meta.rights.statement, "Copyright © 2020 by Ann Author");
+        assert_eq!(meta.dateline, "");
+        assert_eq!(meta.origin.edition_label, "");
     }
 
     #[test]

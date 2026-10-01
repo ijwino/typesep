@@ -161,19 +161,57 @@ pub struct MacroDef {
 pub type MacroTable = BTreeMap<String, MacroDef>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Contributor {
+    pub name: String,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Meta {
-    pub slug: String,
-    pub title: String,
-    pub authors: Vec<String>,
-    pub author_line: String,
-    pub first_published: String,
-    pub revision: String,
-    pub copyright_year: String,
-    pub source_url: String,
+pub struct Origin {
+    pub source: String,
+    pub publisher: String,
+    pub url: String,
     pub edition: String,
     pub edition_label: String,
-    pub fetched_at: String,
+    pub revision: String,
+    pub retrieved: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoticeLink {
+    pub url: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Notice {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<NoticeLink>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Rights {
+    pub statement: String,
+    pub terms: String,
+    pub notices: Vec<Notice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Meta {
+    pub id: String,
+    pub title: String,
+    pub contributors: Vec<Contributor>,
+    pub byline: String,
+    pub dateline: String,
+    /// What a cover names in place of the byline when there is none, as a volume of several
+    /// works has.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub credit: String,
+    pub lang: String,
+    pub origin: Origin,
+    pub rights: Rights,
     pub macros: MacroTable,
 }
 
@@ -184,17 +222,11 @@ pub struct TocItem {
     pub children: Vec<TocItem>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Sections {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bibliography: Option<Vec<Block>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub academic_tools: Option<Vec<Block>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub other_internet_resources: Option<Vec<Block>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub related_entries: Option<Vec<Block>>,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Section {
+    pub key: String,
+    pub label: String,
+    pub blocks: Vec<Block>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -226,10 +258,10 @@ pub struct EntryLinks {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Doc {
     pub meta: Meta,
-    pub preamble: Vec<Block>,
+    pub front: Vec<Block>,
     pub toc: Vec<TocItem>,
     pub body: Vec<Block>,
-    pub sections: Sections,
+    pub back: Vec<Section>,
     pub links: EntryLinks,
     pub attachments: Vec<Attachment>,
     pub warnings: Vec<String>,
@@ -250,7 +282,27 @@ mod tests {
     fn nodes_serialise_to_their_json_value() {
         let doc = Doc {
             meta: Meta {
-                slug: "x".into(),
+                id: "x".into(),
+                contributors: vec![Contributor {
+                    name: "A".into(),
+                    role: "author".into(),
+                }],
+                rights: Rights {
+                    notices: vec![
+                        Notice {
+                            text: "n".into(),
+                            link: Some(NoticeLink {
+                                url: "u".into(),
+                                label: "l".into(),
+                            }),
+                        },
+                        Notice {
+                            text: "m".into(),
+                            link: None,
+                        },
+                    ],
+                    ..Default::default()
+                },
                 macros: BTreeMap::from([(
                     "opL".to_owned(),
                     MacroDef {
@@ -329,10 +381,11 @@ mod tests {
                     ],
                 },
             ],
-            sections: Sections {
-                related_entries: Some(vec![]),
-                ..Default::default()
-            },
+            back: vec![Section {
+                key: "related".into(),
+                label: "Related Entries".into(),
+                blocks: vec![],
+            }],
             attachments: vec![Attachment {
                 kind: AttachmentKind::Notes,
                 title: "Notes".into(),
@@ -345,10 +398,12 @@ mod tests {
         let value = serde_json::to_value(&doc).unwrap();
         let expected = json!({
             "meta": {
-                "slug": "x", "title": "", "authors": [], "authorLine": "", "firstPublished": "", "revision": "", "copyrightYear": "",
-                "sourceUrl": "", "edition": "", "editionLabel": "", "fetchedAt": "", "macros": { "opL": { "body": "\\mathbin{L}", "args": 0 } }
+                "id": "x", "title": "", "contributors": [{ "name": "A", "role": "author" }], "byline": "", "dateline": "", "lang": "",
+                "origin": { "source": "", "publisher": "", "url": "", "edition": "", "editionLabel": "", "revision": "", "retrieved": "" },
+                "rights": { "statement": "", "terms": "", "notices": [{ "text": "n", "link": { "url": "u", "label": "l" } }, { "text": "m" }] },
+                "macros": { "opL": { "body": "\\mathbin{L}", "args": 0 } }
             },
-            "preamble": [],
+            "front": [],
             "toc": [],
             "body": [
                 { "type": "heading", "level": 2, "id": null, "children": [{ "type": "text", "value": "Heading" }] },
@@ -365,14 +420,24 @@ mod tests {
                 { "type": "table", "rows": [[{ "header": true, "colspan": 1, "rowspan": 2, "children": [] }]], "columns": 1 },
                 { "type": "blockquote", "children": [{ "type": "pre", "children": [] }, { "type": "anchor", "id": "a" }] }
             ],
-            "sections": { "relatedEntries": [] },
+            "back": [{ "key": "related", "label": "Related Entries", "blocks": [] }],
             "links": { "notes": [], "supplements": [] },
             "attachments": [{ "kind": "notes", "title": "Notes", "blocks": [], "sourceUrl": "u", "notes": {} }],
             "warnings": []
         });
         assert_eq!(value, expected);
-        let back: Doc = serde_json::from_value(value).unwrap();
-        assert_eq!(back, doc, "the value round-trips");
+        let read: Doc = serde_json::from_value(value).unwrap();
+        assert_eq!(read, doc, "the value round-trips");
+
+        let volume = Meta {
+            credit: "2 entries".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&volume).unwrap()["credit"],
+            json!("2 entries"),
+            "a credit is written only where there is one"
+        );
     }
 
     #[test]

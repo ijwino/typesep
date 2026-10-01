@@ -82,7 +82,7 @@ fn typeset(blocks: &[Block]) -> Result<String, String> {
     body.push(para(vec![text(END)]));
     let doc = Doc {
         meta: Meta {
-            slug: "escaping".into(),
+            id: "escaping".into(),
             title: "Escaping".into(),
             ..Meta::default()
         },

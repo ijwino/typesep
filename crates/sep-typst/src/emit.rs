@@ -3,10 +3,10 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use sep_core::model::{
-    Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, ListNumbering, NoteRef,
-    NoteTable, Table, TableCell, TocItem,
+    Attachment, AttachmentKind, Block, Doc, Figure, Inline, List, ListNumbering, Meta, NoteRef,
+    NoteTable, Section, Table, TableCell, TocItem,
 };
-use sep_core::sections::{ContentKey, SECTION_LABELS, selected_sections};
+use sep_core::sections::{ContentKey, selected_sections};
 use sep_core::style::Style;
 
 use crate::escape::{escape_code, escape_string, escape_text, guard_line_start, safe_id};
@@ -14,10 +14,7 @@ use crate::fonts::Fonts;
 use crate::math::Converter;
 use crate::preamble::{PreambleInput, build_preamble};
 use crate::style::{View, typst_pt};
-use crate::text::{
-    MERGED_RIGHTS, PERSONAL_USE_NOTICE, SEP_NAME, SUPPORT_LABEL, SUPPORT_NOTICE, SUPPORT_URL,
-    copyright_line, dateline, retrieval_dates, volume_meta,
-};
+use crate::text::retrieval_dates;
 use crate::world::FIGURES_PREFIX;
 
 #[derive(Clone, Copy)]
@@ -25,7 +22,7 @@ pub struct EmitOptions<'a> {
     pub sections: &'a BTreeSet<ContentKey>,
     pub images: &'a BTreeMap<String, crate::images::Image>,
     pub cover_template: Option<&'a str>,
-    pub volume_title: Option<&'a str>,
+    pub volume: Option<&'a Meta>,
     pub fonts: Option<&'a Fonts>,
     pub raw_math: &'a BTreeSet<usize>,
 }
@@ -39,7 +36,7 @@ impl Default for EmitOptions<'_> {
             sections: &NONE,
             images: &NO_IMAGES,
             cover_template: None,
-            volume_title: None,
+            volume: None,
             fonts: None,
             raw_math: &NO_RAW,
         }
@@ -64,8 +61,8 @@ struct Ctx<'a> {
     images: &'a BTreeMap<String, crate::images::Image>,
     sections: &'a BTreeSet<ContentKey>,
     merged: bool,
-    slug: String,
-    region: &'static str,
+    doc_id: String,
+    region: String,
     notes: NoteTable,
     attached: HashMap<String, usize>,
     attachment_index: Option<usize>,
@@ -99,8 +96,8 @@ impl<'a> Ctx<'a> {
             images: opts.images,
             sections: opts.sections,
             merged,
-            slug: String::new(),
-            region: "body",
+            doc_id: String::new(),
+            region: "body".to_owned(),
             notes: NoteTable::new(),
             attached: HashMap::new(),
             attachment_index: None,
@@ -140,8 +137,8 @@ impl<'a> Ctx<'a> {
             Some(n) => format!("a{n}--{id}"),
             None => id.to_owned(),
         };
-        let full = if self.merged && !self.slug.is_empty() {
-            format!("{}--{scoped}", self.slug)
+        let full = if self.merged && !self.doc_id.is_empty() {
+            format!("{}--{scoped}", self.doc_id)
         } else {
             scoped
         };
@@ -224,18 +221,10 @@ fn highest_note_number(doc: &Doc) -> i64 {
 
 fn walk_doc(doc: &Doc, visit: &mut impl FnMut(&Inline)) {
     let mut blocks: Vec<&Block> = Vec::new();
-    blocks.extend(doc.preamble.iter());
+    blocks.extend(doc.front.iter());
     blocks.extend(doc.body.iter());
-    for section in [
-        &doc.sections.bibliography,
-        &doc.sections.academic_tools,
-        &doc.sections.other_internet_resources,
-        &doc.sections.related_entries,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        blocks.extend(section.iter());
+    for section in &doc.back {
+        blocks.extend(section.blocks.iter());
     }
     for attachment in &doc.attachments {
         blocks.extend(attachment.blocks.iter());
@@ -383,9 +372,8 @@ fn joined(nodes: &[Block], ctx: &mut Ctx<'_>) -> String {
     render_blocks(nodes, ctx).join("\n\n")
 }
 
-fn in_region<T>(ctx: &mut Ctx<'_>, region: &'static str, f: impl FnOnce(&mut Ctx<'_>) -> T) -> T {
-    let previous = ctx.region;
-    ctx.region = region;
+fn in_region<T>(ctx: &mut Ctx<'_>, region: &str, f: impl FnOnce(&mut Ctx<'_>) -> T) -> T {
+    let previous = std::mem::replace(&mut ctx.region, region.to_owned());
     let out = f(ctx);
     ctx.region = previous;
     out
@@ -920,7 +908,7 @@ fn link(href: &str, internal: bool, children: &[Inline], ctx: &mut Ctx<'_>) -> S
 
     let mut mode = ctx.links_mode.clone();
     if (mode == "footnote" || mode == "endnote")
-        && (!ctx.links_sections.iter().any(|s| s == ctx.region) || ctx.in_note)
+        && (!ctx.links_sections.contains(&ctx.region) || ctx.in_note)
     {
         mode = "inline".to_owned();
     }
@@ -954,7 +942,7 @@ fn attachment_markup(extra: &Attachment, ctx: &mut Ctx<'_>) -> Vec<String> {
     out
 }
 
-fn table_of_contents(toc: &[TocItem], ctx: &mut Ctx<'_>) -> Option<String> {
+fn table_of_contents(toc: &[TocItem], back: &[Section], ctx: &mut Ctx<'_>) -> Option<String> {
     let style = ctx.view.str("toc.style");
     let depth = ctx.view.int("toc.depth");
     if style == "none" || toc.is_empty() {
@@ -974,10 +962,10 @@ fn table_of_contents(toc: &[TocItem], ctx: &mut Ctx<'_>) -> Option<String> {
         );
     }
 
-    let dropped: HashSet<String> = SECTION_LABELS
+    let dropped: HashSet<String> = back
         .iter()
-        .filter(|(key, _)| !ctx.sections.contains(key))
-        .map(|(_, label)| label.to_lowercase())
+        .filter(|section| !ctx.sections.iter().any(|key| key.name() == section.key))
+        .map(|section| section.label.to_lowercase())
         .collect();
     let page_numbers = ctx.view.bool("toc.pageNumbers");
     let body = toc_items(toc, 1, depth, &dropped, page_numbers, ctx)?;
@@ -1037,19 +1025,15 @@ trait Pipe: Sized {
 }
 impl<T> Pipe for T {}
 
-/// Where the entry came from and who holds it: the source, the date it was fetched and the
-/// copyright line. Both the title page and the colophon open with these.
-fn provenance(meta: &sep_core::model::Meta, merged: bool, retrieved: &str) -> Vec<String> {
-    let source = if meta.edition_label.is_empty() {
-        SEP_NAME.to_owned()
-    } else {
-        format!("{SEP_NAME}, {}", escape_text(&meta.edition_label))
-    };
-    let rights = if merged {
-        MERGED_RIGHTS.to_owned()
-    } else {
-        escape_text(&copyright_line(meta))
-    };
+/// Where the entry came from and who holds it: the publisher and edition, the date it was
+/// retrieved and the rights statement. Both the title page and the colophon open with these.
+fn provenance(meta: &Meta, retrieved: &str) -> Vec<String> {
+    let source = [&meta.origin.publisher, &meta.origin.edition_label]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .map(|part| escape_text(part))
+        .collect::<Vec<_>>()
+        .join(", ");
     [
         source,
         if retrieved.is_empty() {
@@ -1057,7 +1041,7 @@ fn provenance(meta: &sep_core::model::Meta, merged: bool, retrieved: &str) -> Ve
         } else {
             format!("Retrieved {}", escape_text(retrieved))
         },
-        rights,
+        escape_text(&meta.rights.statement),
     ]
     .into_iter()
     .filter(|part| !part.is_empty())
@@ -1075,28 +1059,29 @@ fn note_block(parts: &[String]) -> String {
 /// The terms the entry is read under, as the last page. This is not a style option: no
 /// setting removes it, because `cover.style` and `cover.fields` are the reader's to choose
 /// and the notice is not. The EPUB carries the same words in `dc:rights`.
-fn colophon(meta: &sep_core::model::Meta, merged: bool, retrieved: &str) -> String {
-    let mut parts = provenance(meta, merged, retrieved);
-    parts.push(escape_text(PERSONAL_USE_NOTICE));
-    parts.push(format!(
-        "{} #link({})[{}]",
-        escape_text(SUPPORT_NOTICE),
-        escape_string(SUPPORT_URL),
-        crate::escape::url_for_display(SUPPORT_LABEL)
-    ));
+fn colophon(meta: &Meta, retrieved: &str) -> String {
+    let mut parts = provenance(meta, retrieved);
+    if !meta.rights.terms.is_empty() {
+        parts.push(escape_text(&meta.rights.terms));
+    }
+    for notice in &meta.rights.notices {
+        parts.push(match &notice.link {
+            Some(link) => format!(
+                "{} #link({})[{}]",
+                escape_text(&notice.text),
+                escape_string(&link.url),
+                crate::escape::url_for_display(&link.label)
+            ),
+            None => escape_text(&notice.text),
+        });
+    }
     format!(
         "#page(header: none, footer: none, columns: 1, numbering: none)[\n  #v(1fr)\n  {}\n]",
         note_block(&parts)
     )
 }
 
-fn simple_cover(
-    meta: &sep_core::model::Meta,
-    docs: &[&Doc],
-    merged: bool,
-    retrieved: &str,
-    ctx: &mut Ctx<'_>,
-) -> String {
+fn simple_cover(meta: &Meta, retrieved: &str, ctx: &mut Ctx<'_>) -> String {
     let mut lines: Vec<String> = vec!["  #set align(center)".to_owned(), "  #v(18%)".to_owned()];
     macro_rules! add {
         ($markup:expr) => {{
@@ -1105,53 +1090,43 @@ fn simple_cover(
         }};
     }
 
-    let fields: Vec<String> = ctx
-        .view
-        .list("cover.fields")
-        .into_iter()
-        .filter(|f| !(merged && f == "dates"))
-        .collect();
-
-    for field in fields {
+    for field in ctx.view.list("cover.fields") {
         match field.as_str() {
             "title" => add!(format!(
                 "#text(size: 20pt){}",
                 content(&escape_text(&meta.title))
             )),
             "author" => {
-                if !meta.author_line.is_empty() {
+                let credit = if meta.byline.is_empty() {
+                    &meta.credit
+                } else {
+                    &meta.byline
+                };
+                if !credit.is_empty() {
                     add!(format!(
                         "#text(size: 1.2em){}",
-                        content(&escape_text(&meta.author_line))
-                    ));
-                } else if docs.len() > 1 {
-                    add!(format!(
-                        "#text(size: 1.2em)[{} entries from the {SEP_NAME}]",
-                        docs.len()
+                        content(&escape_text(credit))
                     ));
                 }
             }
             "dates" => {
-                let dates = dateline(meta);
-                if !dates.is_empty() {
-                    add!(format!("#emph{}", content(&escape_text(&dates))));
+                if !meta.dateline.is_empty() {
+                    add!(format!("#emph{}", content(&escape_text(&meta.dateline))));
                 }
             }
             "sourceUrl" => {
-                if !meta.source_url.is_empty() {
+                let url = &meta.origin.url;
+                if !url.is_empty() {
                     add!(format!(
                         "#text(size: 0.9em)[#link({})[#fs-code{}]]",
-                        escape_string(&meta.source_url),
-                        content(&crate::escape::url_for_display(&meta.source_url))
+                        escape_string(url),
+                        content(&crate::escape::url_for_display(url))
                     ));
                 }
             }
             "copyright" => {
                 lines.push("  #v(1fr)".to_owned());
-                lines.push(format!(
-                    "  {}",
-                    note_block(&provenance(meta, merged, retrieved))
-                ));
+                lines.push(format!("  {}", note_block(&provenance(meta, retrieved))));
             }
             _ => {}
         }
@@ -1163,7 +1138,7 @@ fn simple_cover(
 }
 
 fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
-    ctx.slug = doc.meta.slug.clone();
+    ctx.doc_id = doc.meta.id.clone();
     ctx.math = Converter::new(&doc.meta.macros);
     ctx.notes = doc
         .attachments
@@ -1184,10 +1159,10 @@ fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
         })
         .collect();
     ctx.attachment_index = None;
-    ctx.self_urls = if doc.meta.source_url.is_empty() {
+    ctx.self_urls = if doc.meta.origin.url.is_empty() {
         HashSet::new()
     } else {
-        let base = doc.meta.source_url.clone();
+        let base = doc.meta.origin.url.clone();
         let directory = match base.rfind('/') {
             Some(at) => format!("{}index.html", &base[..=at]),
             None => format!("{base}index.html"),
@@ -1212,19 +1187,18 @@ fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
         out.push(format!("#counter(footnote).update({})", ctx.note_running));
     }
 
-    let dates = dateline(&doc.meta);
-    if !dates.is_empty() {
+    if !doc.meta.dateline.is_empty() {
         out.push(format!(
             "#block(below: 0.8em)[#emph{}]",
-            content(&escape_text(&dates))
+            content(&escape_text(&doc.meta.dateline))
         ));
     }
 
     out.extend(in_region(ctx, "preamble", |ctx| {
-        render_blocks(&doc.preamble, ctx)
+        render_blocks(&doc.front, ctx)
     }));
 
-    if let Some(toc) = table_of_contents(&doc.toc, ctx) {
+    if let Some(toc) = table_of_contents(&doc.toc, &doc.back, ctx) {
         out.push(toc);
     }
 
@@ -1244,10 +1218,10 @@ fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
         }
     }
 
-    for (key, _, blocks) in selected_sections(doc, ctx.sections) {
-        let blocks = blocks.to_vec();
-        let region = region_name(key);
-        out.extend(in_region(ctx, region, |ctx| render_blocks(&blocks, ctx)));
+    for section in selected_sections(doc, ctx.sections) {
+        out.extend(in_region(ctx, &section.key, |ctx| {
+            render_blocks(&section.blocks, ctx)
+        }));
     }
 
     if ctx.sections.contains(&ContentKey::Supplements) {
@@ -1288,21 +1262,10 @@ fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
     out
 }
 
-fn region_name(key: ContentKey) -> &'static str {
-    match key {
-        ContentKey::Bib => "bib",
-        ContentKey::Academic => "academic",
-        ContentKey::Oir => "oir",
-        ContentKey::Related => "related",
-        ContentKey::Notes => "notes",
-        ContentKey::Supplements => "supplements",
-    }
-}
-
 fn render_body(docs: &[&Doc], ctx: &mut Ctx<'_>, opts: &EmitOptions<'_>) -> String {
     let view = ctx.view;
-    let metas: Vec<&sep_core::model::Meta> = docs.iter().map(|d| &d.meta).collect();
-    let meta = volume_meta(docs, opts.volume_title);
+    let metas: Vec<&Meta> = docs.iter().map(|d| &d.meta).collect();
+    let meta = opts.volume.unwrap_or(&docs[0].meta);
     let retrieved = retrieval_dates(&metas);
 
     let mut out: Vec<String> = Vec::new();
@@ -1316,8 +1279,7 @@ fn render_body(docs: &[&Doc], ctx: &mut Ctx<'_>, opts: &EmitOptions<'_>) -> Stri
             out.push(template.trim_end().to_owned());
         }
     } else if cover_style == "simple" {
-        let merged = opts.volume_title.is_some();
-        out.push(simple_cover(&meta, docs, merged, &retrieved, ctx));
+        out.push(simple_cover(meta, &retrieved, ctx));
     }
 
     let before = view.str("advanced.hooks.beforeBody");
@@ -1338,7 +1300,7 @@ fn render_body(docs: &[&Doc], ctx: &mut Ctx<'_>, opts: &EmitOptions<'_>) -> Stri
         out.push(after.trim().to_owned());
     }
 
-    out.push(colophon(&meta, opts.volume_title.is_some(), &retrieved));
+    out.push(colophon(meta, &retrieved));
     out.join("\n\n")
 }
 
@@ -1355,14 +1317,14 @@ pub fn emit_document(docs: &[&Doc], style: &Style, opts: EmitOptions<'_>) -> Ren
     ctx.known = known;
     let body = render_body(docs, &mut ctx, &opts);
 
-    let metas: Vec<&sep_core::model::Meta> = docs.iter().map(|d| &d.meta).collect();
-    let meta = volume_meta(docs, opts.volume_title);
+    let metas: Vec<&Meta> = docs.iter().map(|d| &d.meta).collect();
+    let meta = opts.volume.unwrap_or(&docs[0].meta);
     let input = PreambleInput {
         title: meta.title.clone(),
-        author_line: meta.author_line.clone(),
-        edition: meta.edition_label.clone(),
+        byline: meta.byline.clone(),
+        edition: meta.origin.edition_label.clone(),
         date: retrieval_dates(&metas),
-        subject: SEP_NAME.to_owned(),
+        subject: meta.origin.publisher.clone(),
     };
     let (preamble, mut warnings) = build_preamble(&view, &input, opts.fonts);
     warnings.extend(ctx.warnings);

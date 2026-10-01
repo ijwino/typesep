@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::model::{Block, Doc};
+use crate::model::{Doc, Section};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ContentKey {
@@ -52,23 +52,10 @@ pub const SECTION_LABELS: [(ContentKey, &str); 4] = [
     (ContentKey::Related, "Related Entries"),
 ];
 
-pub fn selected_sections<'a>(
-    doc: &'a Doc,
-    wanted: &BTreeSet<ContentKey>,
-) -> Vec<(ContentKey, &'static str, &'a [Block])> {
-    SECTION_LABELS
+pub fn selected_sections<'a>(doc: &'a Doc, wanted: &BTreeSet<ContentKey>) -> Vec<&'a Section> {
+    doc.back
         .iter()
-        .filter(|(key, _)| wanted.contains(key))
-        .filter_map(|(key, label)| {
-            let blocks = match key {
-                ContentKey::Bib => doc.sections.bibliography.as_deref(),
-                ContentKey::Academic => doc.sections.academic_tools.as_deref(),
-                ContentKey::Oir => doc.sections.other_internet_resources.as_deref(),
-                ContentKey::Related => doc.sections.related_entries.as_deref(),
-                _ => None,
-            }?;
-            Some((*key, *label, blocks))
-        })
+        .filter(|section| wanted.iter().any(|key| key.name() == section.key))
         .collect()
 }
 
