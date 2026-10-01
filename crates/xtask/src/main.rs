@@ -6,6 +6,7 @@ use std::process::Command;
 use clap::{Args, Parser, Subcommand};
 use serde_json::Value;
 
+mod baselines;
 mod checks;
 mod licenses;
 
@@ -33,6 +34,8 @@ enum Task {
     EpubCheck(Walk),
     /// Write THIRD-PARTY-LICENSES.txt, or resolve every license expression without writing it.
     Licenses(Licenses),
+    /// Typeset the corpus into the render snapshots: Typst source, EPUB members, page counts.
+    Baselines(Baselines),
 }
 
 #[derive(Args)]
@@ -68,6 +71,28 @@ struct Licenses {
     /// Where to write the notice.
     #[arg(long, value_name = "FILE")]
     out: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct Baselines {
+    /// The binary to drive.
+    #[arg(long, value_name = "PATH", default_value = "target/release/typesep")]
+    exec: PathBuf,
+    /// Where the snapshots go; the corpus's snapshots/render by default.
+    #[arg(long, value_name = "DIR")]
+    out: Option<PathBuf>,
+    /// The library the binary reads; the corpus's own by default.
+    #[arg(long, value_name = "DIR")]
+    library: Option<PathBuf>,
+    /// Replace the snapshots that are there.
+    #[arg(long)]
+    bless: bool,
+    /// Leave the binary's own outputs behind, in out/baselines.
+    #[arg(long)]
+    keep: bool,
+    /// Say what is happening, output by output.
+    #[arg(long)]
+    verbose: bool,
 }
 
 #[derive(Parser)]
@@ -137,6 +162,19 @@ fn main() -> std::process::ExitCode {
             checks::epub_check(walk, &root)
         }
         Task::Licenses(args) => licenses::run(&root, args.target, args.validate, args.out),
+        Task::Baselines(args) => baselines::run(baselines::BaselineArgs {
+            binary: root.join(&args.exec),
+            library: args.library.unwrap_or_else(|| corpus_subdir("library")),
+            models: corpus_subdir("snapshots/model"),
+            dest: args.out.map_or_else(
+                || corpus_subdir("snapshots").join("render"),
+                |out| root.join(out),
+            ),
+            work: root.join("out").join("baselines"),
+            bless: args.bless,
+            keep: args.keep,
+            verbose: args.verbose,
+        }),
     }
 }
 
