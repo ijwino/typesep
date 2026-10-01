@@ -193,3 +193,156 @@ fn notes_set_as_endnotes_never_reach_the_policy() {
     assert!(!source.contains("#fs-moved-notes("), "{source}");
     assert!(compiled.moved_notes.is_empty());
 }
+
+/// Text that is markup to Typst, which a note the document holds must keep as text.
+const HOSTILE: &str = "a *b* #c $d$ <e> @f [g] ] [ // h /* i */ C:\\dir\\ \\\nj = k";
+
+/// An entry that holds its notes itself, as a wiki page does: two the text refers to (the
+/// tenth before the second, which their ids would sort the other way round) and one it
+/// never refers to.
+fn holding(notes: &[(&str, &str)]) -> Doc {
+    let refer = |id: &str, label: &str| {
+        Inline::NoteRef(NoteRef {
+            id: id.to_owned(),
+            label: label.to_owned(),
+            href: format!("#{id}"),
+            ref_id: Some(format!("cite_ref-{label}")),
+        })
+    };
+    let mut doc = entry("wiki", &[]);
+    doc.attachments.clear();
+    doc.body = vec![Block::Para {
+        children: vec![
+            text("First"),
+            refer("cite_note-10", "1"),
+            text(" and second"),
+            refer("cite_note-2", "2"),
+            text("."),
+        ],
+        align: None,
+        indent_em: 0,
+    }];
+    doc.notes = notes
+        .iter()
+        .map(|(id, value)| ((*id).to_owned(), vec![para(value)]))
+        .collect();
+    doc
+}
+
+fn own_notes() -> Doc {
+    holding(&[
+        ("cite_note-10", HOSTILE),
+        ("cite_note-2", "The second note."),
+        ("cite_note-9", "A note nothing refers to."),
+    ])
+}
+
+/// The Typst source and the text the document typesets to, with `sections` selected.
+fn typeset(doc: &Doc, style: &Style, sections: &[&str]) -> (String, String) {
+    let fonts = Fonts::embedded();
+    let sections = sections.iter().map(|s| (*s).to_owned()).collect();
+    let rendered = emit_document(
+        &[doc],
+        style,
+        EmitOptions {
+            fonts: Some(&fonts),
+            sections: &sections,
+            ..Default::default()
+        },
+    );
+    let world = SepWorld::new(rendered.source.clone(), &rendered.figures, &fonts);
+    let document = typst::compile::<typst_layout::PagedDocument>(&world)
+        .output
+        .unwrap_or_else(|errors| panic!("{errors:?}\n{}", rendered.source));
+    fn walk(frame: &typst::layout::Frame, out: &mut String) {
+        for (_, item) in frame.items() {
+            match item {
+                typst::layout::FrameItem::Group(group) => walk(&group.frame, out),
+                typst::layout::FrameItem::Text(run) => out.push_str(run.text.as_str()),
+                _ => {}
+            }
+        }
+    }
+    let mut out = String::new();
+    for page in document.pages() {
+        walk(&page.frame, &mut out);
+    }
+    (rendered.source, out)
+}
+
+fn squeeze(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_whitespace() && *c != '\u{ad}')
+        .collect()
+}
+
+#[test]
+fn notes_the_document_holds_are_set_as_footnotes_as_attached_ones_are() {
+    let (source, text) = typeset(&own_notes(), &style(&[]), &["notes"]);
+    assert!(source.contains("#fs-note(0, 1)"), "{source}");
+    assert!(source.contains("#fs-note(0, 2)"), "{source}");
+    assert!(
+        source.contains("#fs-moved-notes(0, title: [Notes])"),
+        "{source}"
+    );
+    assert!(squeeze(&text).contains(&squeeze(HOSTILE)), "{text}");
+    assert!(!text.contains("A note nothing refers to"), "{text}");
+
+    let (source, _) = typeset(&own_notes(), &style(&["notes.maxHeight=0"]), &["notes"]);
+    assert!(source.contains("#footnote["), "{source}");
+}
+
+#[test]
+fn notes_the_document_holds_are_set_as_endnotes_as_attached_ones_are() {
+    let (source, text) = typeset(&own_notes(), &style(&["notes.style=endnote"]), &["notes"]);
+    assert!(source.contains("#link(<endnote-1>)[#super[1]]"), "{source}");
+    assert!(source.contains("#fs-endnote([1], ["), "{source}");
+    assert!(
+        source.contains("#fs-endnote([2], [The second note.])"),
+        "{source}"
+    );
+    assert!(squeeze(&text).contains(&squeeze(HOSTILE)), "{text}");
+}
+
+#[test]
+fn notes_the_document_holds_are_an_appendix_in_the_order_the_text_refers_to_them() {
+    let (source, text) = typeset(&own_notes(), &style(&["notes.style=appendix"]), &["notes"]);
+    assert!(source.contains("#heading(level: 2)[Notes]"), "{source}");
+    assert!(
+        source.contains("#super[\\[#link(<cite_note-10>)[1]\\]]"),
+        "{source}"
+    );
+    assert!(
+        source.contains("#super[\\[#link(<cite_note-2>)[2]\\]]"),
+        "{source}"
+    );
+    let at = |needle: &str| {
+        source
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle}: {source}"))
+    };
+    let tenth = at("#metadata(none)<cite_note-10>\n#fs-endnote([1], [");
+    let second = at("#metadata(none)<cite_note-2>\n#fs-endnote([2], [The second note.])");
+    let never = at("#metadata(none)<cite_note-9>\n#fs-endnote([], [A note nothing refers to.])");
+    assert!(tenth < second && second < never, "{source}");
+    assert!(squeeze(&text).contains(&squeeze(HOSTILE)), "{text}");
+
+    let (source, _) = typeset(&own_notes(), &style(&["notes.style=appendix"]), &[]);
+    assert!(!source.contains("[Notes]"), "{source}");
+    assert!(
+        source.contains("#super[\\[1\\]]"),
+        "with the notes left out, a reference is its label: {source}"
+    );
+}
+
+#[test]
+fn an_attached_note_is_the_one_a_reference_names_when_both_have_its_id() {
+    let mut doc = entry("pleasure", &[(1, 3)]);
+    doc.notes.insert(
+        "note-1".to_owned(),
+        vec![para("The document's own, never used.")],
+    );
+    let (source, _) = typeset(&doc, &style(&[]), &["notes"]);
+    assert!(source.contains("pleasure and pain"), "{source}");
+    assert!(!source.contains("never used"), "{source}");
+}
