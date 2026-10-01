@@ -358,6 +358,9 @@ pub struct Doc {
     pub toc: Vec<TocItem>,
     pub body: Vec<Block>,
     pub back: Vec<Section>,
+    /// The notes the document holds itself, by the id its note references name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub notes: NoteTable,
     pub links: EntryLinks,
     pub attachments: Vec<Attachment>,
     pub warnings: Vec<String>,
@@ -647,6 +650,7 @@ mod tests {
                     inline: None,
                 }),
             ],
+            notes: BTreeMap::from([("cite_note-1".to_owned(), vec![Block::Rule])]),
             ..Default::default()
         };
         let value = serde_json::to_value(&doc).unwrap();
@@ -679,6 +683,10 @@ mod tests {
                 { "type": "figure", "src": "bw.png", "alt": "", "ebookSrc": "colour.png" }
             ])
         );
+        assert_eq!(
+            value["notes"],
+            json!({ "cite_note-1": [{ "type": "rule" }] })
+        );
         let read: Doc = serde_json::from_value(value).unwrap();
         assert_eq!(read, doc, "the value round-trips");
 
@@ -707,6 +715,7 @@ mod tests {
             ]),
             "a field at its default is not written"
         );
+        assert!(value.get("notes").is_none(), "{value}");
         let without: Doc = serde_json::from_value(value).unwrap();
         assert_eq!(without, plain, "and reads back as its default");
     }

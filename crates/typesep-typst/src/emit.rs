@@ -64,6 +64,8 @@ struct Ctx<'a> {
     doc_id: String,
     region: String,
     notes: NoteTable,
+    own_notes: NoteTable,
+    own_refs: Vec<(String, String)>,
     attached: HashMap<String, usize>,
     attachment_index: Option<usize>,
     self_urls: HashSet<String>,
@@ -100,6 +102,8 @@ impl<'a> Ctx<'a> {
             doc_id: String::new(),
             region: "body".to_owned(),
             notes: NoteTable::new(),
+            own_notes: NoteTable::new(),
+            own_refs: Vec::new(),
             attached: HashMap::new(),
             attachment_index: None,
             self_urls: HashSet::new(),
@@ -233,6 +237,9 @@ fn walk_doc(doc: &Doc, visit: &mut impl FnMut(&Inline)) {
         for note in attachment.notes.iter().flat_map(|n| n.values()) {
             blocks.extend(note.iter());
         }
+    }
+    for note in doc.notes.values() {
+        blocks.extend(note.iter());
     }
     for block in blocks {
         walk_block(block, visit);
@@ -1118,6 +1125,17 @@ fn note_ref(node: &NoteRef, ctx: &mut Ctx<'_>) -> String {
         return format!("{anchor}{}", note(kind, number, &body, ctx));
     }
 
+    if ctx.own_notes.contains_key(&node.id) {
+        if !ctx.own_refs.iter().any(|(id, _)| *id == node.id) {
+            ctx.own_refs.push((node.id.clone(), node.label.clone()));
+        }
+        let target = ctx.label_for(&node.id, None);
+        if ctx.resolves(&target) {
+            return format!("{anchor}#super[\\[#link(<{target}>){}\\]]", content(&label));
+        }
+        return format!("{anchor}#super[\\[{label}\\]]");
+    }
+
     if let Some(target) = ctx.resolve_target(&node.href) {
         return format!("{anchor}#super[\\[#link(<{target}>){}\\]]", content(&label));
     }
@@ -1179,6 +1197,45 @@ fn attachment_markup(extra: &Attachment, ctx: &mut Ctx<'_>) -> Vec<String> {
     out.extend(render_blocks(&extra.blocks, ctx));
     ctx.attachment_index = None;
     out
+}
+
+/// The notes the document holds itself, set as a section of their own when notes are an
+/// appendix: in the order the text first refers to them, each under the label it was
+/// referred to by, and then any the text never refers to.
+fn own_notes_markup(ctx: &mut Ctx<'_>) -> Option<String> {
+    if ctx.own_notes.is_empty() {
+        return None;
+    }
+    let mut lines = vec!["#heading(level: 2)[Notes]".to_owned()];
+    let mut done: HashSet<String> = HashSet::new();
+    let mut next = 0;
+    loop {
+        let (id, label) = match ctx.own_refs.get(next) {
+            Some(found) => found.clone(),
+            None => match ctx.own_notes.keys().find(|id| !done.contains(*id)) {
+                Some(id) => (id.clone(), String::new()),
+                None => break,
+            },
+        };
+        next += 1;
+        if !done.insert(id.clone()) {
+            continue;
+        }
+        let blocks = ctx.own_notes[&id].clone();
+        let body = joined(&blocks, ctx);
+        let target = ctx.label_for(&id, None);
+        let anchor = if ctx.seen.insert(target.clone()) {
+            format!("#metadata(none)<{target}>\n")
+        } else {
+            String::new()
+        };
+        lines.push(format!(
+            "{anchor}#fs-endnote({}, {})",
+            content(&escape_text(&label)),
+            content(&body)
+        ));
+    }
+    Some(lines.join("\n\n"))
 }
 
 fn table_of_contents(toc: &[TocItem], back: &[Section], ctx: &mut Ctx<'_>) -> Option<String> {
@@ -1379,13 +1436,22 @@ fn simple_cover(meta: &Meta, retrieved: &str, ctx: &mut Ctx<'_>) -> String {
 fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
     ctx.doc_id = doc.meta.id.clone();
     ctx.math = Converter::new(&doc.meta.macros);
-    ctx.notes = doc
+    let attached_notes: NoteTable = doc
         .attachments
         .iter()
         .filter(|a| a.kind == AttachmentKind::Notes)
         .filter_map(|a| a.notes.as_ref())
         .flat_map(|notes| notes.iter().map(|(k, v)| (k.clone(), v.clone())))
         .collect();
+    ctx.own_notes = doc
+        .notes
+        .iter()
+        .filter(|(id, _)| !attached_notes.contains_key(*id))
+        .map(|(id, blocks)| (id.clone(), blocks.clone()))
+        .collect();
+    ctx.own_refs.clear();
+    ctx.notes = ctx.own_notes.clone();
+    ctx.notes.extend(attached_notes);
     ctx.attached = doc
         .attachments
         .iter()
@@ -1455,6 +1521,7 @@ fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
                 attachment_markup(&extra, ctx)
             }));
         }
+        out.extend(in_region(ctx, "notes", own_notes_markup));
     }
 
     let sections = ctx.sections;

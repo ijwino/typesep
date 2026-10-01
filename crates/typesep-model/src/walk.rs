@@ -22,6 +22,9 @@ pub fn figure_urls(doc: &Doc) -> Vec<String> {
             blocks.extend(note.iter());
         }
     }
+    for note in doc.notes.values() {
+        blocks.extend(note.iter());
+    }
     for block in blocks {
         walk_block(block, &mut push);
     }
@@ -218,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn figures_inside_the_new_blocks_are_listed_too() {
+    fn figures_inside_the_new_blocks_and_the_documents_own_notes_are_listed_too() {
         let mut doc = Doc::default();
         let mut coloured = figure("grey.png");
         coloured.ebook_src = Some("colour.png".into());
@@ -240,9 +243,17 @@ mod tests {
                 }],
             }],
         });
+        doc.notes
+            .insert("n1".into(), vec![Block::Figure(figure("note.png"))]);
         assert_eq!(
             figure_urls(&doc),
-            vec!["grey.png", "colour.png", "column.svg", "margin.png"]
+            vec![
+                "grey.png",
+                "colour.png",
+                "column.svg",
+                "margin.png",
+                "note.png"
+            ]
         );
     }
 

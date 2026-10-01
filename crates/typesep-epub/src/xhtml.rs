@@ -76,6 +76,8 @@ pub struct Ctx<'a> {
     pub images: &'a BTreeMap<String, Image>,
     pub assets: Vec<(PathBuf, String)>,
     pub notes: NoteTable,
+    own_notes: NoteTable,
+    own_refs: Vec<(String, String, Option<String>)>,
     pub attached: BTreeMap<String, usize>,
     pub attachment_index: Option<usize>,
     pub self_urls: BTreeSet<String>,
@@ -97,6 +99,8 @@ impl<'a> Ctx<'a> {
             images,
             assets: Vec::new(),
             notes: NoteTable::new(),
+            own_notes: NoteTable::new(),
+            own_refs: Vec::new(),
             attached: BTreeMap::new(),
             attachment_index: None,
             self_urls: BTreeSet::new(),
@@ -298,6 +302,17 @@ fn note_ref(node: &NoteRef, ctx: &mut Ctx) -> String {
             "<sup><a class=\"noteref\" epub:type=\"noteref\" href=\"#{}\"{id_attr}>{label}</a></sup>",
             xml_id(&node.id)
         );
+    }
+    if ctx.own_notes.contains_key(&node.id) {
+        if !ctx.own_refs.iter().any(|(id, _, _)| *id == node.id) {
+            ctx.own_refs
+                .push((node.id.clone(), node.label.clone(), node.ref_id.clone()));
+        }
+        let target = xml_id(&node.id);
+        if ctx.has_id(&target) {
+            return format!("<sup>[<a href=\"#{target}\"{id_attr}>{label}</a>]</sup>");
+        }
+        return format!("<sup{id_attr}>[{label}]</sup>");
     }
     if let Some(target) = ctx.resolve_target(&node.href) {
         return format!("<sup>[<a href=\"#{target}\"{id_attr}>{label}</a>]</sup>");
@@ -693,6 +708,46 @@ fn notes_section(ctx: &mut Ctx) -> String {
         return String::new();
     }
     let notes = std::mem::take(&mut ctx.note_bodies);
+    let html = notes_html(&notes, ctx);
+    ctx.note_bodies = notes;
+    html
+}
+
+/// The notes the document holds itself, set where an attached notes page would be when
+/// notes are an appendix: in the order the text first refers to them, each under the label
+/// it was referred to by, and then any the text never refers to.
+fn own_notes_html(ctx: &mut Ctx) -> String {
+    if ctx.own_notes.is_empty() {
+        return String::new();
+    }
+    let mut notes = Vec::new();
+    let mut done: BTreeSet<String> = BTreeSet::new();
+    let mut next = 0;
+    loop {
+        let (id, label, ref_id) = match ctx.own_refs.get(next) {
+            Some(found) => found.clone(),
+            None => match ctx.own_notes.keys().find(|id| !done.contains(*id)) {
+                Some(id) => (id.clone(), String::new(), None),
+                None => break,
+            },
+        };
+        next += 1;
+        if !done.insert(id.clone()) {
+            continue;
+        }
+        let content = ctx.own_notes[&id].clone();
+        let blocks = blocks_html(&content, ctx);
+        notes.push(NoteBody {
+            id,
+            label,
+            ref_id,
+            blocks,
+        });
+    }
+    notes_html(&notes, ctx)
+}
+
+fn notes_html(notes: &[NoteBody], ctx: &mut Ctx) -> String {
     let asides: Vec<String> = notes
         .iter()
         .map(|note| {
@@ -722,7 +777,6 @@ fn notes_section(ctx: &mut Ctx) -> String {
             format!("<aside class=\"note\" epub:type=\"footnote\"{id_attr}>{lead}{rest}</aside>")
         })
         .collect();
-    ctx.note_bodies = notes;
     format!(
         "<section class=\"notes\" epub:type=\"endnotes\"><h2>Notes</h2>{}</section>",
         asides.join("\n")
@@ -730,13 +784,22 @@ fn notes_section(ctx: &mut Ctx) -> String {
 }
 
 pub fn entry_html(doc: &Doc, ctx: &mut Ctx, sections: &BTreeSet<String>) -> String {
-    ctx.notes = doc
+    let attached_notes: NoteTable = doc
         .attachments
         .iter()
         .filter(|a| a.kind == AttachmentKind::Notes)
         .flat_map(|a| a.notes.iter().flatten())
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
+    ctx.own_notes = doc
+        .notes
+        .iter()
+        .filter(|(id, _)| !attached_notes.contains_key(*id))
+        .map(|(id, blocks)| (id.clone(), blocks.clone()))
+        .collect();
+    ctx.own_refs = Vec::new();
+    ctx.notes = ctx.own_notes.clone();
+    ctx.notes.extend(attached_notes);
     ctx.attached = doc
         .attachments
         .iter()
@@ -782,6 +845,7 @@ pub fn entry_html(doc: &Doc, ctx: &mut Ctx, sections: &BTreeSet<String>) -> Stri
         {
             parts.push(attachment_html(extra, ctx));
         }
+        parts.push(own_notes_html(ctx));
     }
     for section in doc.back.iter().filter(|s| sections.contains(&s.key)) {
         parts.extend(blocks_html(&section.blocks, ctx));

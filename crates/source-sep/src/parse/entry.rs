@@ -215,6 +215,7 @@ pub fn parse_entry(html: &str, opts: &ParseOptions) -> Doc {
         toc: without_items_named(toc, &absent),
         body,
         back,
+        notes: NoteTable::new(),
         links,
         attachments: Vec::new(),
         warnings: ctx.warnings(),
