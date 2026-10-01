@@ -2,11 +2,28 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// The corpus is thirty SEP entries and the models they parse to. It is not in this
+/// The corpus is thirty SEP entries and what they parse and typeset to. It is not in this
 /// repository: the entries are copyright their authors and the SEP's Terms of Use grant no
 /// right to redistribute them, so the corpus lives outside the tree and this test runs only
-/// where it is present. `TYPESEP_TEST_CORPUS` names the directory; it holds `library/` and
-/// `snapshots/model/`.
+/// where it is present. `TYPESEP_TEST_CORPUS` names the directory (by default
+/// `$XDG_DATA_HOME/typesep/test-corpus`); it holds
+///
+/// - `library/`: the entries as fetched, which the binary reads with `--library`. The
+///   snapshots are made from it as it is, fetch dates included, so refetching anything in it
+///   means making them again.
+/// - `snapshots/model/<slug>.json`: what `dump model <slug> --sections all` prints, checked
+///   here and by `make parity`.
+/// - `snapshots/render/`: what the entries typeset to, checked by render.rs and written by
+///   `make baselines`, which replaces them only when given `ARGS=--bless`:
+///   - `manifest.tsv`: one output per line: its run, its name, its PDF's page count, whether
+///     its Typst source is what the emitter wrote (`emitted`) or what the recovery loop
+///     re-emitted (`recovered`), and the arguments that made it. The runs are listed in
+///     crates/xtask/src/baselines.rs.
+///   - `<run>/<name>.typ`: the Typst source the PDF was compiled from, as `--keep-typst`
+///     writes it.
+///   - `<run>/<name>.epub/`: the EPUB's members, with the build time in `content.opf`
+///     replaced by `(build time)`, and `<run>/<name>.epub.members` their order and
+///     compression.
 fn corpus_dir() -> PathBuf {
     let named = |name: &str| {
         std::env::var_os(name)
