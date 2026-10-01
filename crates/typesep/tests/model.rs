@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The corpus is thirty SEP entries and what they parse and typeset to. It is not in this
@@ -8,9 +8,17 @@ use std::process::Command;
 /// where it is present. `TYPESEP_TEST_CORPUS` names the directory (by default
 /// `$XDG_DATA_HOME/typesep/test-corpus`); it holds
 ///
-/// - `library/`: the entries as fetched, which the binary reads with `--library`. The
-///   snapshots are made from it as it is, fetch dates included, so refetching anything in it
-///   means making them again.
+/// - `library/`: the entries as fetched, which the binary reads with `--library`, in the
+///   layout of any library: `sep/` holds the SEP's files at their paths on the site, each unit
+///   (`sep/entries/<slug>/`, an archived entry's `sep/archives/<edition>/entries/<slug>/`, and
+///   `sep/` itself for the site's root) with its `meta.json`, and the converted copies of its
+///   files under `sep/.derived/`. The tests and `make baselines` read a copy of it, so the
+///   corpus is never written to; a corpus in the layout before sources had directories
+///   (`entries/` and `meta.json` at the top) still works, since the copy is moved into
+///   `sep/` the first time typesep opens it, and the corpus itself is moved by any typesep
+///   pointed at it, `typesep list --library <corpus>/library` say. The snapshots are made
+///   from it as it is, fetch dates included, so refetching anything in it means making them
+///   again.
 /// - `snapshots/model/<slug>.json`: what `dump model <slug> --sections all` prints, checked
 ///   here and by `make parity`.
 /// - `snapshots/render/`: what the entries typeset to, checked by render.rs and written by
@@ -40,6 +48,20 @@ fn corpus_dir() -> PathBuf {
         .join("test-corpus")
 }
 
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn every_model_is_what_the_parser_still_produces() {
     let corpus = corpus_dir();
@@ -54,6 +76,11 @@ fn every_model_is_what_the_parser_still_produces() {
         );
         return;
     }
+
+    // Opening a library can move it into the present layout, so the binary reads a copy.
+    let work = tempfile::tempdir().expect("a temporary directory");
+    let library = work.path().join("library");
+    copy_dir(&corpus.join("library"), &library).expect("a copy of the library");
 
     let mut files: Vec<_> = fs::read_dir(&models)
         .expect("snapshots/model is readable")

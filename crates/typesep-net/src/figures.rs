@@ -15,7 +15,7 @@ pub struct FigureFetch {
 pub fn fetch_figures(doc: &Doc, net: &mut Net<'_>, log: &mut dyn FnMut(&str)) -> FigureFetch {
     let mut result = FigureFetch::default();
     for url in figure_urls(doc) {
-        match net.library.has(&url) {
+        match net.store.has(&url) {
             Ok(true) => {
                 result.present.push(url);
                 continue;
@@ -27,7 +27,7 @@ pub fn fetch_figures(doc: &Doc, net: &mut Net<'_>, log: &mut dyn FnMut(&str)) ->
                 continue;
             }
         }
-        if !net.refresh && net.library.is_missing(&url).unwrap_or(false) {
+        if !net.refresh && net.store.is_missing(&url).unwrap_or(false) {
             log(&format!(
                 "skipping image {url}: the server had no such file last time (--refresh asks again)"
             ));
@@ -43,7 +43,7 @@ pub fn fetch_figures(doc: &Doc, net: &mut Net<'_>, log: &mut dyn FnMut(&str)) ->
         match fetcher.get(&url, FetchOptions::default()) {
             Ok(FetchResult::NotModified) => {}
             Ok(FetchResult::Fetched(res)) => {
-                if let Err(err) = net.library.write(
+                if let Err(err) = net.store.write(
                     &url,
                     &res.body,
                     res.etag.as_deref(),
@@ -60,7 +60,7 @@ pub fn fetch_figures(doc: &Doc, net: &mut Net<'_>, log: &mut dyn FnMut(&str)) ->
                 let reason = err.to_string();
                 log(&format!("skipping image {url}: {reason}"));
                 if err.is_gone() {
-                    let _ = net.library.mark_missing(&url);
+                    let _ = net.store.mark_missing(&url);
                     result.missing.push(url);
                 } else {
                     result.failed.push((url, reason));
@@ -69,48 +69,4 @@ pub fn fetch_figures(doc: &Doc, net: &mut Net<'_>, log: &mut dyn FnMut(&str)) ->
         }
     }
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use typesep_model::{Block, Figure};
-
-    fn figure(src: &str) -> Figure {
-        Figure {
-            src: src.to_owned(),
-            alt: String::new(),
-            caption: None,
-            id: None,
-            inline: None,
-        }
-    }
-
-    #[test]
-    fn without_a_fetcher_every_figure_is_counted_somewhere() {
-        let temp = tempfile::tempdir().unwrap();
-        let library = crate::library::Library::new(temp.path());
-        library.init().unwrap();
-        let tm = "https://plato.stanford.edu/entries/turing-machine/";
-        let (held, gone, absent) = (
-            format!("{tm}held.png"),
-            format!("{tm}gone.png"),
-            format!("{tm}absent.png"),
-        );
-        library.write(&held, b"\x89PNG", None, None).unwrap();
-        library.mark_missing(&gone).unwrap();
-        let mut doc = Doc::default();
-        for src in [&held, &gone, &absent] {
-            doc.body.push(Block::Figure(figure(src)));
-        }
-
-        let pass = fetch_figures(&doc, &mut Net::offline(&library), &mut |_| {});
-        assert_eq!(pass.present, [held]);
-        assert_eq!(pass.missing, [gone]);
-        assert_eq!(
-            pass.failed,
-            [(absent.clone(), format!("{absent} is not in the library"))]
-        );
-        assert_eq!(pass.fetched, 0);
-    }
 }

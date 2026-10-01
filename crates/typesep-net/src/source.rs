@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use typesep_model::Doc;
 
-use crate::library::{Library, Place, PlaceError};
+use crate::library::{Place, PlaceError, Store};
 use crate::net::{LoadError, Net};
 
 /// A work a source can load, as `Source::resolve` names it from what the user typed.
@@ -130,7 +130,7 @@ pub trait Source: Sync {
     /// What `--sections` can name.
     fn sections(&self) -> &'static [SectionSpec];
     /// The works the library holds.
-    fn held(&self, library: &Library) -> Vec<Held>;
+    fn held(&self, store: &Store<'_>) -> Vec<Held>;
     /// What `--follow-related` follows from `doc`: inputs for `resolve`, taken in the edition
     /// the command line names, as the works it was given are.
     fn related(&self, _doc: &Doc) -> Vec<String> {

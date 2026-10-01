@@ -1,5 +1,5 @@
 use crate::fetch::{FetchError, FetchOptions, FetchResult, Fetcher};
-use crate::library::{FileMeta, Library, LibraryError, PlaceError};
+use crate::library::{FileMeta, LibraryError, PlaceError, Store};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
@@ -30,28 +30,28 @@ pub struct LoadedPage {
     pub revalidated: bool,
 }
 
-/// Where a source's loader gets its files: the library, and the network when the command may
-/// fetch.
+/// Where a source's loader gets its files: its store in the library, and the network when the
+/// command may fetch.
 pub struct Net<'a> {
-    pub library: &'a Library,
+    pub store: Store<'a>,
     pub fetcher: Option<&'a mut Fetcher>,
     pub refresh: bool,
     pub check_updates: bool,
 }
 
 impl<'a> Net<'a> {
-    pub fn offline(library: &'a Library) -> Self {
+    pub fn offline(store: Store<'a>) -> Self {
         Self {
-            library,
+            store,
             fetcher: None,
             refresh: false,
             check_updates: false,
         }
     }
 
-    pub fn fetching(library: &'a Library, fetcher: &'a mut Fetcher) -> Self {
+    pub fn fetching(store: Store<'a>, fetcher: &'a mut Fetcher) -> Self {
         Self {
-            library,
+            store,
             fetcher: Some(fetcher),
             refresh: false,
             check_updates: false,
@@ -73,8 +73,8 @@ impl<'a> Net<'a> {
     }
 
     pub fn page(&mut self, url: &str, refresh: bool) -> Result<LoadedPage, LoadError> {
-        let meta = self.library.read_meta(url)?;
-        let mut cached = self.library.read_body(url)?;
+        let meta = self.store.read_meta(url)?;
+        let mut cached = self.store.read_body(url)?;
 
         if !refresh && let Some(text) = cached.take() {
             return Ok(LoadedPage {
@@ -114,7 +114,7 @@ impl<'a> Net<'a> {
             Ok(result) => result,
             Err(err) => {
                 if err.is_gone() {
-                    self.library.mark_missing(url)?;
+                    self.store.mark_missing(url)?;
                 }
                 return Err(err.into());
             }
@@ -133,7 +133,7 @@ impl<'a> Net<'a> {
                 }),
             },
             FetchResult::Fetched(res) => {
-                self.library.write(
+                self.store.write(
                     url,
                     &res.body,
                     res.etag.as_deref(),
@@ -141,7 +141,7 @@ impl<'a> Net<'a> {
                 )?;
                 Ok(LoadedPage {
                     text: String::from_utf8_lossy(&res.body).into_owned(),
-                    meta: self.library.read_meta(url)?,
+                    meta: self.store.read_meta(url)?,
                     from_cache: false,
                     revalidated: false,
                 })

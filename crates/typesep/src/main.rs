@@ -16,8 +16,8 @@ use typesep_net::figures::fetch_figures;
 use typesep_net::library::{Library, default_library_dir};
 use typesep_net::net::Net;
 use typesep_net::source::{
-    Held, LoadOptions, Loaded, Registry, SectionSpec, UpdateStatus, WorkRef, default_sections,
-    parse_sections,
+    Held, LoadOptions, Loaded, Registry, SectionSpec, Source, UpdateStatus, WorkRef,
+    default_sections, parse_sections,
 };
 use typesep_style::shorthand::{choices_for, is_boolean, shorthand};
 use typesep_style::{
@@ -50,6 +50,45 @@ fn sources() -> &'static Registry {
 /// The `--sections` vocabulary: the default source's, until a command can name another.
 fn section_specs() -> &'static [SectionSpec] {
     sources().default_source().sections()
+}
+
+/// The library at `dir`, made when `create` asks for it, and moved first into the layout this
+/// version reads if an earlier one wrote it, which is said unless `quiet`.
+fn open_library(dir: &Path, create: bool, quiet: bool) -> Result<Library, ExitCode> {
+    let library = Library::new(dir);
+    if create && let Err(err) = library.init() {
+        return Err(user_error(err));
+    }
+    let keys: Vec<&str> = sources().iter().map(|source| source.key()).collect();
+    match library.migrate_legacy(Sep.key(), &keys) {
+        Ok(Some(migrated)) if !quiet => eprintln!(
+            "moved the library {} into {}, where this version keeps the SEP's files",
+            show_path(dir),
+            show_path(&migrated.into)
+        ),
+        Ok(_) => {}
+        Err(err) => return Err(user_error(err)),
+    }
+    Ok(library)
+}
+
+/// What the walk loads works with: the library, and the network when the command fetches.
+struct Loader<'a> {
+    library: &'a Library,
+    fetcher: Option<&'a mut Fetcher>,
+    refresh: bool,
+    check_updates: bool,
+}
+
+impl Loader<'_> {
+    fn net(&mut self, source: &'static dyn Source) -> Net<'_> {
+        Net {
+            store: self.library.store(source),
+            fetcher: self.fetcher.as_deref_mut(),
+            refresh: self.refresh,
+            check_updates: self.check_updates,
+        }
+    }
 }
 
 fn sections_help() -> String {
@@ -606,10 +645,13 @@ fn usage_error(message: impl std::fmt::Display) -> ExitCode {
 
 fn list(opts: &ListOptions) -> ExitCode {
     let dir = opts.library.clone().unwrap_or_else(default_library_dir);
-    let library = Library::new(&dir);
+    let library = match open_library(&dir, false, false) {
+        Ok(library) => library,
+        Err(code) => return code,
+    };
     let entries: Vec<Held> = sources()
         .iter()
-        .flat_map(|source| source.held(&library))
+        .flat_map(|source| source.held(&library.store(source)))
         .collect();
     if entries.is_empty() {
         eprintln!("nothing in the library yet at {}", show_path(&dir));
@@ -831,7 +873,7 @@ struct RenderCtx<'a> {
 }
 
 fn walk_entries(
-    net: &mut Net<'_>,
+    loader: &mut Loader<'_>,
     entries: &[String],
     edition: &str,
     depth: u32,
@@ -862,6 +904,7 @@ fn walk_entries(
         if !seen.insert(work.url.clone()) {
             continue;
         }
+        let mut net = loader.net(source);
         let name = if work.edition.is_empty() {
             work.id.clone()
         } else {
@@ -881,7 +924,7 @@ fn walk_entries(
             String::new()
         };
         if !quiet {
-            let verb = opts.verb.word(net, &work);
+            let verb = opts.verb.word(&net, &work);
             eprintln!("{counter}{verb} {name}{deeper}");
         }
 
@@ -892,7 +935,7 @@ fn walk_entries(
         };
         let loaded = match source.load(
             &work,
-            net,
+            &mut net,
             LoadOptions {
                 sections: opts.sections,
                 log: &mut log,
@@ -917,7 +960,7 @@ fn walk_entries(
                     eprintln!("  {message}");
                 }
             };
-            let pass = fetch_figures(&loaded.doc, net, &mut note);
+            let pass = fetch_figures(&loaded.doc, &mut net, &mut note);
             if pass.fetched > 0 && !quiet {
                 eprintln!("  {} figures fetched", pass.fetched);
             }
@@ -957,7 +1000,7 @@ impl Verb {
             Verb::Checking => "checking",
             Verb::Reading => "reading",
             Verb::Either => {
-                if !net.refresh && net.library.has(&work.url).unwrap_or(false) {
+                if !net.refresh && net.store.has(&work.url).unwrap_or(false) {
                     "reading"
                 } else {
                     "fetching"
@@ -1029,10 +1072,10 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     }
 
     let library_dir = cli.fetching.library_dir();
-    let library = Library::new(&library_dir);
-    if let Err(err) = library.init() {
-        return user_error(err);
-    }
+    let library = match open_library(&library_dir, true, quiet) {
+        Ok(library) => library,
+        Err(code) => return code,
+    };
     if loud {
         eprintln!("library {}", show_path(&library_dir));
         eprintln!("style   {}", describe_style_source(&cli.style));
@@ -1059,7 +1102,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     }
 
     let mut fetcher = (!dump_typst).then(|| cli.network.fetcher(&cli.verbosity));
-    let mut net = Net {
+    let mut loader = Loader {
         library: &library,
         fetcher: fetcher.as_mut(),
         refresh: cli.network.refresh && !dump_typst,
@@ -1089,7 +1132,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     let built = if let Some(merge) = cli.output.merge.as_deref() {
         let mut docs: Vec<Doc> = Vec::new();
         let read = match walk_entries(
-            &mut net,
+            &mut loader,
             &entries,
             &cli.fetching.edition,
             cli.follow_related,
@@ -1115,7 +1158,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     } else {
         let mut built = 0usize;
         let walked = walk_entries(
-            &mut net,
+            &mut loader,
             &entries,
             &cli.fetching.edition,
             cli.follow_related,
@@ -1173,7 +1216,13 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
         group
             .docs
             .iter()
-            .flat_map(|doc| images::collect(doc, &|url| ctx.library.copies_of(url), &mut collect))
+            .flat_map(|doc| {
+                let store = sources()
+                    .get(&doc.meta.origin.source)
+                    .map(|source| ctx.library.store(source));
+                let locate = |url: &str| store.as_ref().map_or(Vec::new(), |s| s.copies_of(url));
+                images::collect(doc, &locate, &mut collect)
+            })
             .collect()
     };
     let cover_template = cover_template(ctx.style)?;
@@ -1298,16 +1347,21 @@ fn fetch_command(opts: &FetchCommandArgs) -> ExitCode {
     }
 
     let library_dir = opts.fetching.library_dir();
-    let library = Library::new(&library_dir);
-    if let Err(err) = library.init() {
-        return user_error(err);
-    }
+    let library = match open_library(&library_dir, true, quiet) {
+        Ok(library) => library,
+        Err(code) => return code,
+    };
     if opts.verbosity.verbose {
         eprintln!("library {}", show_path(&library_dir));
     }
 
     let mut fetcher = opts.network.fetcher(&opts.verbosity);
-    let mut net = Net::fetching(&library, &mut fetcher).with_refresh(opts.network.refresh);
+    let mut loader = Loader {
+        library: &library,
+        fetcher: Some(&mut fetcher),
+        refresh: opts.network.refresh,
+        check_updates: false,
+    };
     let walk = WalkOptions {
         verb: Verb::Either,
         sections: &sections,
@@ -1316,7 +1370,7 @@ fn fetch_command(opts: &FetchCommandArgs) -> ExitCode {
     };
     let mut failures: Vec<(String, String)> = Vec::new();
     let held = match walk_entries(
-        &mut net,
+        &mut loader,
         &entries,
         &opts.fetching.edition,
         opts.follow_related,
@@ -1327,7 +1381,7 @@ fn fetch_command(opts: &FetchCommandArgs) -> ExitCode {
         Ok(held) => held,
         Err(code) => return code,
     };
-    let requests = net.fetcher.as_ref().map_or(0, |f| f.requests());
+    let requests = loader.fetcher.as_ref().map_or(0, |f| f.requests());
     if !quiet {
         eprintln!(
             "{held} {} in {}, {requests} requests",
@@ -1341,10 +1395,10 @@ fn fetch_command(opts: &FetchCommandArgs) -> ExitCode {
 fn update_command(opts: &UpdateArgs) -> ExitCode {
     let quiet = opts.verbosity.quiet;
     let library_dir = opts.fetching.library_dir();
-    let library = Library::new(&library_dir);
-    if let Err(err) = library.init() {
-        return user_error(err);
-    }
+    let library = match open_library(&library_dir, true, quiet) {
+        Ok(library) => library,
+        Err(code) => return code,
+    };
 
     let mut entries = match entries_with_from(&opts.entries, &opts.network.from) {
         Ok(entries) => entries,
@@ -1353,7 +1407,7 @@ fn update_command(opts: &UpdateArgs) -> ExitCode {
     if entries.is_empty() {
         let held: Vec<Held> = sources()
             .iter()
-            .flat_map(|source| source.held(&library))
+            .flat_map(|source| source.held(&library.store(source)))
             .collect();
         let live: Vec<&Held> = held.iter().filter(|e| e.edition.is_empty()).collect();
         if live.len() < held.len() && !quiet {
@@ -1380,9 +1434,12 @@ fn update_command(opts: &UpdateArgs) -> ExitCode {
     }
 
     let mut fetcher = opts.network.fetcher(&opts.verbosity);
-    let mut net = Net::fetching(&library, &mut fetcher)
-        .with_refresh(opts.network.refresh)
-        .with_check_updates(true);
+    let mut loader = Loader {
+        library: &library,
+        fetcher: Some(&mut fetcher),
+        refresh: opts.network.refresh,
+        check_updates: true,
+    };
     let walk = WalkOptions {
         verb: Verb::Checking,
         sections: &sections,
@@ -1392,7 +1449,7 @@ fn update_command(opts: &UpdateArgs) -> ExitCode {
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut changed = 0usize;
     let checked = match walk_entries(
-        &mut net,
+        &mut loader,
         &entries,
         &opts.fetching.edition,
         0,
@@ -1492,7 +1549,6 @@ fn read_entries(
     quiet: bool,
 ) -> Result<Vec<Doc>, ExitCode> {
     let mut docs = Vec::new();
-    let mut net = Net::offline(library);
     for work in works {
         if !quiet {
             eprintln!("reading {}", work.id);
@@ -1507,7 +1563,7 @@ fn read_entries(
             .expect("a work comes from a source the registry holds");
         match source.load(
             work,
-            &mut net,
+            &mut Net::offline(library.store(source)),
             LoadOptions {
                 sections,
                 log: &mut log,
@@ -1540,10 +1596,10 @@ fn dump_model(opts: &DumpModelOptions) -> ExitCode {
         Ok(targets) => targets,
         Err(code) => return code,
     };
-    let library = Library::new(opts.fetching.library_dir());
-    if let Err(err) = library.init() {
-        return user_error(err);
-    }
+    let library = match open_library(&opts.fetching.library_dir(), true, opts.verbosity.quiet) {
+        Ok(library) => library,
+        Err(code) => return code,
+    };
     let docs = match read_entries(&library, &targets, &sections, opts.verbosity.quiet) {
         Ok(docs) => docs,
         Err(code) => return code,
@@ -1686,17 +1742,18 @@ mod tests {
         library.init().unwrap();
         let held = Sep.resolve("turing-machine", Some("live")).unwrap();
         library
+            .store(&Sep)
             .write(&held.url, b"<html></html>", None, None)
             .unwrap();
         let absent = Sep.resolve("no-such-entry", Some("live")).unwrap();
 
-        let net = Net::offline(&library);
+        let net = Net::offline(library.store(&Sep));
         assert_eq!(Verb::Either.word(&net, &held), "reading");
         assert_eq!(Verb::Either.word(&net, &absent), "fetching");
         assert_eq!(Verb::Reading.word(&net, &absent), "reading");
         assert_eq!(Verb::Checking.word(&net, &held), "checking");
 
-        let refreshed = Net::offline(&library).with_refresh(true);
+        let refreshed = Net::offline(library.store(&Sep)).with_refresh(true);
         assert_eq!(Verb::Either.word(&refreshed, &held), "fetching");
     }
 
@@ -1882,7 +1939,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let library = Library::new(dir.path());
         library.init().unwrap();
-        let mut net = Net::offline(&library);
+        let mut loader = Loader {
+            library: &library,
+            fetcher: None,
+            refresh: false,
+            check_updates: false,
+        };
         let sections = BTreeSet::new();
         let walk = WalkOptions {
             verb: Verb::Reading,
@@ -1892,7 +1954,7 @@ mod tests {
         };
         let mut failures = Vec::new();
         let walked = walk_entries(
-            &mut net,
+            &mut loader,
             &["aaa-x".to_owned(), "bbb-y".to_owned()],
             "live",
             0,
@@ -1909,7 +1971,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let library = Library::new(dir.path());
         library.init().unwrap();
-        let mut net = Net::offline(&library);
+        let mut loader = Loader {
+            library: &library,
+            fetcher: None,
+            refresh: false,
+            check_updates: false,
+        };
         let sections = BTreeSet::new();
         let walk = WalkOptions {
             verb: Verb::Reading,
@@ -1924,7 +1991,7 @@ mod tests {
             "https://plato.stanford.edu/entries/kant/".to_owned(),
         ];
         let walked = walk_entries(
-            &mut net,
+            &mut loader,
             &entries,
             "live",
             0,

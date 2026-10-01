@@ -1,9 +1,10 @@
 use typesep_model::Doc;
-use typesep_net::library::{HOST, Library, Place, PlaceError, place_for};
+use typesep_net::library::{Place, PlaceError, Store};
 use typesep_net::net::{LoadError, Net};
 use typesep_net::source::{Held, LoadOptions, Loaded, ResolveError, SectionSpec, Source, WorkRef};
 
 use crate::entry::{EntryTarget, load_entry, normalize_entry, related_entry_urls};
+use crate::library::{HOST, list_entries, place_for};
 use crate::sections::SECTIONS;
 
 /// The Stanford Encyclopedia of Philosophy.
@@ -69,9 +70,8 @@ impl Source for Sep {
         &SECTIONS
     }
 
-    fn held(&self, library: &Library) -> Vec<Held> {
-        library
-            .list_entries()
+    fn held(&self, store: &Store<'_>) -> Vec<Held> {
+        list_entries(store)
             .into_iter()
             .map(|entry| Held {
                 id: entry.slug,

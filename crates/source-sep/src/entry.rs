@@ -2,10 +2,10 @@ use std::collections::BTreeSet;
 
 use typesep_model::walk::links_in_block;
 use typesep_model::{AttachmentKind, Doc};
-use typesep_net::library::HOST;
 use typesep_net::net::{LoadError, Net};
 use typesep_net::source::{LoadOptions, Loaded};
 
+use crate::library::{HOST, record_entry};
 use crate::parse::metadata::is_edition;
 use crate::parse::{
     AttachmentOptions, ParseOptions, extract_macros, parse_attachment, parse_entry,
@@ -97,8 +97,8 @@ pub fn load_entry(
     opts: LoadOptions<'_>,
 ) -> Result<Loaded, LoadError> {
     let previous_revision = net
-        .library
-        .entry_meta(&target.url)?
+        .store
+        .work_record(&target.url)?
         .map(|record| record.revision);
 
     let refresh_page = net.refresh || net.check_updates;
@@ -107,7 +107,7 @@ pub fn load_entry(
         .map_err(|err| match err {
             LoadError::NotHeld { url } => LoadError::NotInLibrary {
                 url,
-                dir: net.library.dir().display().to_string(),
+                dir: net.store.library_dir().display().to_string(),
                 slug: target.slug.clone(),
             },
             other => other,
@@ -133,8 +133,12 @@ pub fn load_entry(
         },
     );
     if net.writes() {
-        net.library
-            .record_entry(&target.url, &doc.meta.title, &doc.meta.origin.revision)?;
+        record_entry(
+            &net.store,
+            &target.url,
+            &doc.meta.title,
+            &doc.meta.origin.revision,
+        )?;
     }
 
     let mut macro_sources: BTreeSet<String> = BTreeSet::new();
@@ -217,6 +221,8 @@ mod tests {
     use super::*;
     use crate::sections::ALL_CONTENT_KEYS;
     use typesep_net::library::Library;
+
+    use crate::Sep;
     use typesep_net::source::UpdateStatus;
 
     fn target(slug: &str, edition: &str, url: &str) -> EntryTarget {
@@ -357,6 +363,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         let temp = tempfile::tempdir().unwrap();
         let library = Library::new(temp.path());
         library.init().unwrap();
+        let store = library.store(&Sep);
         let target = normalize_entry("turing-machine", "live").unwrap();
         let all: BTreeSet<String> = ALL_CONTENT_KEYS
             .iter()
@@ -365,7 +372,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         let mut harness = typesep_net::fetch::testing::Harness::new(answers());
 
         let loaded = {
-            let mut source = Net::fetching(&library, &mut harness.fetcher);
+            let mut source = Net::fetching(library.store(&Sep), &mut harness.fetcher);
             load_entry(
                 &mut source,
                 &target,
@@ -382,13 +389,13 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         assert_eq!(loaded.previous_revision, None, "the entry is new here");
         assert_eq!(UpdateStatus::of(&loaded), UpdateStatus::New);
 
-        assert_eq!(library.read_body(TM).unwrap().as_deref(), Some(PAGE));
-        assert!(library.has(&format!("{TM}notes.html")).unwrap());
+        assert_eq!(store.read_body(TM).unwrap().as_deref(), Some(PAGE));
+        assert!(store.has(&format!("{TM}notes.html")).unwrap());
         assert!(
-            library.is_missing(&format!("{TM}local.js")).unwrap(),
+            store.is_missing(&format!("{TM}local.js")).unwrap(),
             "a 404 is remembered, so it costs one request in all"
         );
-        let record = library.entry_meta(TM).unwrap().expect("a recorded entry");
+        let record = store.work_record(TM).unwrap().expect("a recorded entry");
         assert_eq!(record.revision, "Wed May 21, 2025");
         assert_eq!(record.title.as_deref(), Some("Turing Machines"));
         assert_eq!(
@@ -402,7 +409,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
 
         let before = harness.urls().len();
         let again = {
-            let mut source = Net::fetching(&library, &mut harness.fetcher);
+            let mut source = Net::fetching(library.store(&Sep), &mut harness.fetcher);
             load_entry(
                 &mut source,
                 &target,
@@ -428,6 +435,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         let temp = tempfile::tempdir().unwrap();
         let library = Library::new(temp.path());
         library.init().unwrap();
+        let store = library.store(&Sep);
         let target = normalize_entry("turing-machine", "live").unwrap();
         let none: BTreeSet<String> = BTreeSet::new();
         let mut logged: Vec<String> = Vec::new();
@@ -437,7 +445,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
             Err("timed out".into()),
         ]);
         {
-            let mut source = Net::fetching(&library, &mut harness.fetcher);
+            let mut source = Net::fetching(library.store(&Sep), &mut harness.fetcher);
             load_entry(
                 &mut source,
                 &target,
@@ -456,9 +464,9 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         );
 
         logged.clear();
-        library.mark_missing(&format!("{TM}local.js")).unwrap();
+        store.mark_missing(&format!("{TM}local.js")).unwrap();
         load_entry(
-            &mut Net::offline(&library),
+            &mut Net::offline(library.store(&Sep)),
             &target,
             LoadOptions {
                 sections: &none,
@@ -477,12 +485,11 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         let temp = tempfile::tempdir().unwrap();
         let library = Library::new(temp.path());
         library.init().unwrap();
-        library
+        let store = library.store(&Sep);
+        store
             .write(TM, PAGE.as_bytes(), Some("\"v1\""), None)
             .unwrap();
-        library
-            .record_entry(TM, "Turing Machines", "Wed May 21, 2025")
-            .unwrap();
+        crate::library::record_entry(&store, TM, "Turing Machines", "Wed May 21, 2025").unwrap();
         let target = normalize_entry("turing-machine", "live").unwrap();
         let none: BTreeSet<String> = BTreeSet::new();
 
@@ -490,7 +497,8 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
             typesep_net::fetch::testing::status(304, "Not Modified"),
         )]);
         let loaded = {
-            let mut source = Net::fetching(&library, &mut harness.fetcher).with_check_updates(true);
+            let mut source =
+                Net::fetching(library.store(&Sep), &mut harness.fetcher).with_check_updates(true);
             load_entry(
                 &mut source,
                 &target,
@@ -513,7 +521,8 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
             typesep_net::fetch::testing::ok(TM, &revised),
         )]);
         let loaded = {
-            let mut source = Net::fetching(&library, &mut harness.fetcher).with_check_updates(true);
+            let mut source =
+                Net::fetching(library.store(&Sep), &mut harness.fetcher).with_check_updates(true);
             load_entry(
                 &mut source,
                 &target,
@@ -534,8 +543,8 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
             UpdateStatus::of(&loaded).to_string(),
             "revised (was Wed May 21, 2025)"
         );
-        assert_eq!(library.read_body(TM).unwrap().as_deref(), Some(&*revised));
-        let record = library.entry_meta(TM).unwrap().unwrap();
+        assert_eq!(store.read_body(TM).unwrap().as_deref(), Some(&*revised));
+        let record = store.work_record(TM).unwrap().unwrap();
         assert_eq!(record.revision, "Thu Sep 10, 2026");
         assert_eq!(
             record.previous_revision.as_deref(),
@@ -548,7 +557,8 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         let temp = tempfile::tempdir().unwrap();
         let library = Library::new(temp.path());
         library.init().unwrap();
-        library.write(TM, PAGE.as_bytes(), None, None).unwrap();
+        let store = library.store(&Sep);
+        store.write(TM, PAGE.as_bytes(), None, None).unwrap();
         let target = normalize_entry("turing-machine", "live").unwrap();
         let all: BTreeSet<String> = ALL_CONTENT_KEYS
             .iter()
@@ -557,7 +567,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         let mut skipped: Vec<String> = Vec::new();
 
         let loaded = load_entry(
-            &mut Net::offline(&library),
+            &mut Net::offline(library.store(&Sep)),
             &target,
             LoadOptions {
                 sections: &all,
@@ -573,7 +583,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
             )]
         );
         assert!(
-            library.entry_meta(TM).unwrap().is_none(),
+            store.work_record(TM).unwrap().is_none(),
             "a dump reads the library and leaves it as it found it"
         );
     }
@@ -612,6 +622,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         let temp = tempfile::tempdir().unwrap();
         let library = Library::new(temp.path());
         library.init().unwrap();
+        let store = library.store(&Sep);
         let mut doc = Doc::default();
         doc.body
             .push(typesep_model::Block::Figure(typesep_model::Figure {
@@ -638,25 +649,65 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
             Ok(typesep_net::fetch::testing::status(404, "Not Found")),
         ]);
         let pass = {
-            let mut source = Net::fetching(&library, &mut harness.fetcher);
+            let mut source = Net::fetching(library.store(&Sep), &mut harness.fetcher);
             typesep_net::figures::fetch_figures(&doc, &mut source, &mut |_| {})
         };
         assert_eq!(pass.present, [format!("{TM}S1.svg")]);
         assert_eq!(pass.fetched, 1);
         assert_eq!(pass.missing, [format!("{TM}gone.png")]);
         assert!(pass.failed.is_empty());
-        assert!(library.has(&format!("{TM}S1.svg")).unwrap());
-        assert!(library.is_missing(&format!("{TM}gone.png")).unwrap());
+        assert!(store.has(&format!("{TM}S1.svg")).unwrap());
+        assert!(store.is_missing(&format!("{TM}gone.png")).unwrap());
 
         let before = harness.urls().len();
         let pass = {
-            let mut source = Net::fetching(&library, &mut harness.fetcher);
+            let mut source = Net::fetching(library.store(&Sep), &mut harness.fetcher);
             typesep_net::figures::fetch_figures(&doc, &mut source, &mut |_| {})
         };
         assert_eq!(harness.urls().len(), before, "no request was made");
         assert_eq!(pass.fetched, 0);
         assert_eq!(pass.present.len(), 1);
         assert_eq!(pass.missing.len(), 1);
+    }
+
+    #[test]
+    fn without_a_fetcher_every_figure_is_counted_somewhere() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = Library::new(temp.path());
+        library.init().unwrap();
+        let store = library.store(&Sep);
+        let tm = "https://plato.stanford.edu/entries/turing-machine/";
+        let (held, gone, absent) = (
+            format!("{tm}held.png"),
+            format!("{tm}gone.png"),
+            format!("{tm}absent.png"),
+        );
+        store.write(&held, b"\x89PNG", None, None).unwrap();
+        store.mark_missing(&gone).unwrap();
+        let mut doc = Doc::default();
+        for src in [&held, &gone, &absent] {
+            doc.body
+                .push(typesep_model::Block::Figure(typesep_model::Figure {
+                    src: src.clone(),
+                    alt: String::new(),
+                    caption: None,
+                    id: None,
+                    inline: None,
+                }));
+        }
+
+        let pass = typesep_net::figures::fetch_figures(
+            &doc,
+            &mut Net::offline(library.store(&Sep)),
+            &mut |_| {},
+        );
+        assert_eq!(pass.present, [held]);
+        assert_eq!(pass.missing, [gone]);
+        assert_eq!(
+            pass.failed,
+            [(absent.clone(), format!("{absent} is not in the library"))]
+        );
+        assert_eq!(pass.fetched, 0);
     }
 
     #[test]
@@ -670,7 +721,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
             .collect();
         let mut logged: Vec<String> = Vec::new();
         let err = load_entry(
-            &mut Net::offline(&library),
+            &mut Net::offline(library.store(&Sep)),
             &target,
             LoadOptions {
                 sections: &all,
@@ -681,7 +732,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         assert!(matches!(err, LoadError::NotInLibrary { .. }));
         assert!(err.to_string().contains("typesep fetch turing-machine"));
 
-        let unit = temp.path().join("entries/turing-machine");
+        let unit = temp.path().join("sep/entries/turing-machine");
         std::fs::create_dir_all(&unit).unwrap();
         std::fs::write(
             unit.join("index.html"),
@@ -706,7 +757,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         .unwrap();
 
         let doc = load_entry(
-            &mut Net::offline(&library),
+            &mut Net::offline(library.store(&Sep)),
             &target,
             LoadOptions {
                 sections: &all,
@@ -747,7 +798,7 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
 
         let none = BTreeSet::new();
         let doc = load_entry(
-            &mut Net::offline(&library),
+            &mut Net::offline(library.store(&Sep)),
             &target,
             LoadOptions {
                 sections: &none,
@@ -763,11 +814,13 @@ substantive revision Wed May 21, 2025</div><div id=\"main-text\"><p>See\
         assert_eq!(doc.links.notes.len(), 1, "the links are still discovered");
 
         let archived = normalize_entry("turing-machine", "sum2026").unwrap();
-        let unit = temp.path().join("archives/sum2026/entries/turing-machine");
+        let unit = temp
+            .path()
+            .join("sep/archives/sum2026/entries/turing-machine");
         std::fs::create_dir_all(&unit).unwrap();
         std::fs::write(unit.join("index.html"), "<html/>").unwrap();
         let doc = load_entry(
-            &mut Net::offline(&library),
+            &mut Net::offline(library.store(&Sep)),
             &archived,
             LoadOptions {
                 sections: &all,
