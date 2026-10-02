@@ -3222,6 +3222,7 @@ dependencies = [
  "dirs 7.0.0",
  "regex",
  "serde_json",
+ "source-lwp",
  "source-sep",
  "tempfile",
  "typesep-epub",

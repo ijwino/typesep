@@ -18,6 +18,7 @@ typesep-net.workspace = true
 typesep-typst.workspace = true
 typesep-epub.workspace = true
 source-sep.workspace = true
+source-lwp.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 clap_mangen.workspace = true

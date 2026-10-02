@@ -4,8 +4,10 @@ use std::process::ExitCode;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use clap::builder::PossibleValuesParser;
 use clap::{Arg, ArgAction, ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use output::{file_name_for, job_name_for, output_file};
+use source_lwp::Lwp;
 use source_sep::Sep;
 use source_sep::parse::volume_meta;
 use typesep_epub::{EpubOptions, build_epub};
@@ -36,10 +38,16 @@ mod reference;
 
 const CONFIG_FILE: &str = "typesep.config.yaml";
 
-/// The sources typesep reads.
+/// The sources typesep reads, the SEP first: a name that is not an address is its unless
+/// `--source` says otherwise.
 fn sources() -> &'static Registry {
-    static SOURCES: LazyLock<Registry> = LazyLock::new(|| Registry::new(vec![&Sep]));
+    static SOURCES: LazyLock<Registry> = LazyLock::new(|| Registry::new(vec![&Sep, &Lwp]));
     &SOURCES
+}
+
+/// What `--source` accepts: the keys of the sources.
+fn source_keys() -> PossibleValuesParser {
+    PossibleValuesParser::new(sources().iter().map(|source| source.key()))
 }
 
 /// The style table, made for the sections the sources name.
@@ -120,15 +128,18 @@ const AFTER_HELP: &str = "\
 Style flags are shortcuts for -s: --paper a4 means -s page.size=a4. When both touch the same
 option, -s wins. Settings merge in this order, later winning: built-in defaults, the preset,
 --style (or typesep.config.yaml in the current directory), then the flags above. The preset is
---preset when given, else the \"preset\" key of the style file, else halfletter.
+--preset when given, else the \"preset\" key of the style file, else the one the source of
+the works asks for (lwp for the Wittgenstein Project), else halfletter.
 
---edition: SEP's robots.txt excludes /archives/, so use a fixed edition deliberately and sparingly.";
+--edition: the SEP's robots.txt excludes /archives/, so use a fixed edition deliberately and
+sparingly. The Wittgenstein Project has no editions: its texts are always read at their current
+revision.";
 
 #[derive(Parser)]
 #[command(
     name = "typesep",
     version,
-    about = "Typeset Stanford Encyclopedia of Philosophy entries as PDF/EPUB (Rust port, in progress)",
+    about = "Typeset entries of the Stanford Encyclopedia of Philosophy and texts of the Ludwig Wittgenstein Project as PDF/EPUB (Rust port, in progress)",
     after_help = AFTER_HELP,
     args_conflicts_with_subcommands = true
 )]
@@ -142,7 +153,7 @@ struct Cli {
 
 #[derive(Args)]
 struct BuildArgs {
-    /// Entry slugs or URLs, e.g. turing-machine
+    /// Entry slugs or URLs, e.g. turing-machine; with --source lwp, titles of texts
     #[arg(value_name = "entry")]
     entries: Vec<String>,
 
@@ -274,14 +285,25 @@ struct FetchOptions {
     #[arg(long, value_name = "dir")]
     library: Option<PathBuf>,
 
-    /// live, or one fixed archive edition such as sum2026
-    #[arg(long, value_name = "name", default_value = "live")]
-    edition: String,
+    /// An SEP edition: live, or one fixed archive edition such as sum2026 [default: live]
+    #[arg(long, value_name = "name")]
+    edition: Option<String>,
+
+    /// Where a name that is not an address is looked up: sep (entry slugs) or lwp (titles of texts)
+    #[arg(long, value_name = "key", default_value = "sep", value_parser = source_keys())]
+    source: String,
 }
 
 impl FetchOptions {
     fn library_dir(&self) -> PathBuf {
         self.library.clone().unwrap_or_else(default_library_dir)
+    }
+
+    /// The source a name that is not an address goes to.
+    fn bare_source(&self) -> &'static dyn Source {
+        sources()
+            .get(&self.source)
+            .expect("--source names a source the registry holds")
     }
 }
 
@@ -292,7 +314,7 @@ struct NetworkOptions {
     #[arg(long)]
     refresh: bool,
 
-    /// Gap between requests, per SEP's robots.txt
+    /// Gap between requests (5 s is what the SEP's robots.txt asks for)
     #[arg(long, value_name = "ms", default_value_t = DEFAULT_DELAY_MS)]
     delay: u64,
 
@@ -395,7 +417,7 @@ enum DumpCommand {
 
 #[derive(Args)]
 struct FetchCommandArgs {
-    /// Entry slugs or URLs, e.g. turing-machine
+    /// Entry slugs or URLs, e.g. turing-machine; with --source lwp, titles of texts
     #[arg(value_name = "entry")]
     entries: Vec<String>,
 
@@ -423,7 +445,7 @@ struct FetchCommandArgs {
 
 #[derive(Args)]
 struct UpdateArgs {
-    /// Entry slugs or URLs; with none, every live entry the library holds
+    /// Entry slugs, titles or URLs; with none, every live entry and text the library holds
     #[arg(value_name = "entry")]
     entries: Vec<String>,
 
@@ -448,7 +470,7 @@ struct StyleCommandOptions {
 
 #[derive(Args)]
 struct DumpModelOptions {
-    /// Entry slugs or URLs, e.g. turing-machine
+    /// Entry slugs or URLs, e.g. turing-machine; with --source lwp, titles of texts
     #[arg(value_name = "entry")]
     entries: Vec<String>,
 
@@ -464,7 +486,7 @@ struct DumpModelOptions {
 
 #[derive(Args)]
 struct DumpTypstOptions {
-    /// Entry slugs or URLs, e.g. turing-machine
+    /// Entry slugs or URLs, e.g. turing-machine; with --source lwp, titles of texts
     #[arg(value_name = "entry")]
     entries: Vec<String>,
 
@@ -805,7 +827,13 @@ fn explain(opts: &ExplainOptions) -> ExitCode {
     }
 }
 
-fn resolve(style: &StyleOptions, matches: &ArgMatches) -> Result<Style, StyleError> {
+/// The style `style` and the flags in `matches` make, on `source_preset` when they name no
+/// preset of their own.
+fn resolve(
+    style: &StyleOptions,
+    matches: &ArgMatches,
+    source_preset: Option<&str>,
+) -> Result<Style, StyleError> {
     let config = Path::new(CONFIG_FILE);
     let file: Option<PathBuf> = style
         .style
@@ -821,12 +849,23 @@ fn resolve(style: &StyleOptions, matches: &ArgMatches) -> Result<Style, StyleErr
         file: file.as_deref(),
         sets,
         schema: Some(schema()),
-        default_preset: None,
+        default_preset: source_preset,
     })
 }
 
+/// The preset the sources of `works` ask for, when they all ask for the same one.
+fn source_preset(works: &[WorkRef]) -> Option<&'static str> {
+    let mut presets = works.iter().map(|work| {
+        sources()
+            .get(work.source)
+            .map_or("", |source| source.preset())
+    });
+    let first = presets.next()?;
+    (!first.is_empty() && presets.all(|preset| preset == first)).then_some(first)
+}
+
 fn style_command(opts: &StyleCommandOptions, matches: &ArgMatches) -> ExitCode {
-    match resolve(&opts.style, matches) {
+    match resolve(&opts.style, matches, None) {
         Ok(style) => {
             outln!("{}", style.to_yaml());
             ExitCode::SUCCESS
@@ -883,7 +922,7 @@ struct RenderCtx<'a> {
 fn walk_entries(
     loader: &mut Loader<'_>,
     entries: &[String],
-    edition: &str,
+    edition: Option<&str>,
     depth: u32,
     opts: &WalkOptions<'_>,
     failures: &mut Vec<(String, String)>,
@@ -898,8 +937,8 @@ fn walk_entries(
     let batch = entries.len() > 1 || depth > 0;
 
     while let Some((entry, reached_at)) = queue.pop_front() {
-        let source = sources().for_input(&entry);
-        let work = match source.resolve(&entry, Some(edition)) {
+        let source = sources().for_input(&entry, opts.bare);
+        let work = match source.resolve(&entry, edition) {
             Ok(work) => work,
             Err(err) => {
                 if !batch {
@@ -1020,6 +1059,8 @@ impl Verb {
 
 struct WalkOptions<'a> {
     verb: Verb,
+    /// The source a name that is not an address goes to.
+    bare: &'static dyn Source,
     sections: &'a BTreeSet<String>,
     images: bool,
     quiet: bool,
@@ -1049,7 +1090,7 @@ fn report_failures(failures: &[(String, String)], built: usize) -> ExitCode {
 fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     let quiet = cli.verbosity.quiet;
     let loud = cli.verbosity.verbose;
-    let mut style = match resolve(&cli.style, matches) {
+    let mut style = match resolve(&cli.style, matches, None) {
         Ok(style) => style,
         Err(err) => return user_error(err),
     };
@@ -1063,8 +1104,22 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     }
     let sections = selected_sections(&cli.content.sections);
 
-    if let Err(code) = targets_for(&entries, &cli.fetching.edition) {
-        return code;
+    let works = match targets_for(
+        &entries,
+        cli.fetching.edition.as_deref(),
+        cli.fetching.bare_source(),
+    ) {
+        Ok(works) => works,
+        Err(code) => return code,
+    };
+    // The works' source may ask for a preset of its own, which the style is made on when
+    // it names none.
+    let preset = source_preset(&works);
+    if preset.is_some() {
+        style = match resolve(&cli.style, matches, preset) {
+            Ok(style) => style,
+            Err(err) => return user_error(err),
+        };
     }
 
     let notes_set = matches.get_one::<String>("notes").is_some()
@@ -1086,7 +1141,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     };
     if loud {
         eprintln!("library {}", show_path(&library_dir));
-        eprintln!("style   {}", describe_style_source(&cli.style));
+        eprintln!("style   {}", describe_style_source(&cli.style, preset));
     }
 
     let fonts = {
@@ -1130,6 +1185,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
         } else {
             Verb::Either
         },
+        bare: cli.fetching.bare_source(),
         sections: &sections,
         images: !cli.content.no_images && !dump_typst,
         quiet,
@@ -1142,7 +1198,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
         let read = match walk_entries(
             &mut loader,
             &entries,
-            &cli.fetching.edition,
+            cli.fetching.edition.as_deref(),
             cli.follow_related,
             &walk,
             &mut failures,
@@ -1168,7 +1224,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
         let walked = walk_entries(
             &mut loader,
             &entries,
-            &cli.fetching.edition,
+            cli.fetching.edition.as_deref(),
             cli.follow_related,
             &walk,
             &mut failures,
@@ -1350,7 +1406,11 @@ fn fetch_command(opts: &FetchCommandArgs) -> ExitCode {
         return usage_error("no entry given");
     }
     let sections = selected_sections(&opts.content.sections);
-    if let Err(code) = targets_for(&entries, &opts.fetching.edition) {
+    if let Err(code) = targets_for(
+        &entries,
+        opts.fetching.edition.as_deref(),
+        opts.fetching.bare_source(),
+    ) {
         return code;
     }
 
@@ -1372,6 +1432,7 @@ fn fetch_command(opts: &FetchCommandArgs) -> ExitCode {
     };
     let walk = WalkOptions {
         verb: Verb::Either,
+        bare: opts.fetching.bare_source(),
         sections: &sections,
         images: !opts.content.no_images,
         quiet,
@@ -1380,7 +1441,7 @@ fn fetch_command(opts: &FetchCommandArgs) -> ExitCode {
     let held = match walk_entries(
         &mut loader,
         &entries,
-        &opts.fetching.edition,
+        opts.fetching.edition.as_deref(),
         opts.follow_related,
         &walk,
         &mut failures,
@@ -1434,10 +1495,15 @@ fn update_command(opts: &UpdateArgs) -> ExitCode {
                 entry_word(live.len())
             );
         }
-        entries = live.iter().map(|e| e.id.clone()).collect();
+        // By address, which names the source as well as the work.
+        entries = live.iter().map(|e| e.url.clone()).collect();
     }
     let sections = selected_sections(&opts.sections);
-    if let Err(code) = targets_for(&entries, &opts.fetching.edition) {
+    if let Err(code) = targets_for(
+        &entries,
+        opts.fetching.edition.as_deref(),
+        opts.fetching.bare_source(),
+    ) {
         return code;
     }
 
@@ -1450,6 +1516,7 @@ fn update_command(opts: &UpdateArgs) -> ExitCode {
     };
     let walk = WalkOptions {
         verb: Verb::Checking,
+        bare: opts.fetching.bare_source(),
         sections: &sections,
         images: false,
         quiet,
@@ -1459,7 +1526,7 @@ fn update_command(opts: &UpdateArgs) -> ExitCode {
     let checked = match walk_entries(
         &mut loader,
         &entries,
-        &opts.fetching.edition,
+        opts.fetching.edition.as_deref(),
         0,
         &walk,
         &mut failures,
@@ -1584,10 +1651,14 @@ fn read_entries(
     Ok(docs)
 }
 
-fn targets_for(entries: &[String], edition: &str) -> Result<Vec<WorkRef>, ExitCode> {
+fn targets_for(
+    entries: &[String],
+    edition: Option<&str>,
+    bare: &'static dyn Source,
+) -> Result<Vec<WorkRef>, ExitCode> {
     let mut works = Vec::new();
     for entry in entries {
-        match sources().for_input(entry).resolve(entry, Some(edition)) {
+        match sources().for_input(entry, bare).resolve(entry, edition) {
             Ok(work) => works.push(work),
             Err(err) => return Err(usage_error(err)),
         }
@@ -1600,7 +1671,11 @@ fn dump_model(opts: &DumpModelOptions) -> ExitCode {
         return usage_error("no entry given");
     }
     let sections = selected_sections(&opts.sections);
-    let targets = match targets_for(&opts.entries, &opts.fetching.edition) {
+    let targets = match targets_for(
+        &opts.entries,
+        opts.fetching.edition.as_deref(),
+        opts.fetching.bare_source(),
+    ) {
         Ok(targets) => targets,
         Err(code) => return code,
     };
@@ -1621,7 +1696,7 @@ fn dump_model(opts: &DumpModelOptions) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn describe_style_source(opts: &StyleOptions) -> String {
+fn describe_style_source(opts: &StyleOptions, source_preset: Option<&str>) -> String {
     let config = Path::new(CONFIG_FILE);
     let file = opts
         .style
@@ -1631,7 +1706,10 @@ fn describe_style_source(opts: &StyleOptions) -> String {
         (Some(preset), Some(file)) => format!("preset {preset}, {}", show_path(&file)),
         (Some(preset), None) => format!("preset {preset}"),
         (None, Some(file)) => show_path(&file),
-        (None, None) => "the default preset".to_owned(),
+        (None, None) => match source_preset {
+            Some(preset) => format!("preset {preset}, the source's"),
+            None => "the default preset".to_owned(),
+        },
     }
 }
 
@@ -1957,6 +2035,7 @@ mod tests {
         let sections = BTreeSet::new();
         let walk = WalkOptions {
             verb: Verb::Reading,
+            bare: &Sep,
             sections: &sections,
             images: false,
             quiet: true,
@@ -1965,7 +2044,7 @@ mod tests {
         let walked = walk_entries(
             &mut loader,
             &["aaa-x".to_owned(), "bbb-y".to_owned()],
-            "live",
+            Some("live"),
             0,
             &walk,
             &mut failures,
@@ -1989,6 +2068,7 @@ mod tests {
         let sections = BTreeSet::new();
         let walk = WalkOptions {
             verb: Verb::Reading,
+            bare: &Sep,
             sections: &sections,
             images: false,
             quiet: true,
@@ -2002,7 +2082,7 @@ mod tests {
         let walked = walk_entries(
             &mut loader,
             &entries,
-            "live",
+            Some("live"),
             0,
             &walk,
             &mut failures,
@@ -2011,6 +2091,67 @@ mod tests {
         assert_eq!(walked.ok(), Some(0));
         let names: Vec<&str> = failures.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, ["kant", "kant (sum2020)"]);
+    }
+
+    #[test]
+    fn the_source_flag_takes_the_key_of_a_source_and_says_which_there_are() {
+        let parsed = command()
+            .try_get_matches_from(["typesep", "fetch", "--source", "lwp", "Zettel"])
+            .expect("lwp is a source");
+        let fetch = parsed.subcommand_matches("fetch").unwrap();
+        assert_eq!(fetch.get_one::<String>("source").unwrap(), "lwp");
+        let err = command()
+            .try_get_matches_from(["typesep", "--source", "wiki", "x"])
+            .unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::InvalidValue);
+        assert_eq!(err.exit_code(), 2, "a usage error");
+        assert!(
+            err.to_string().contains("[possible values: sep, lwp]"),
+            "{err}"
+        );
+        let defaulted = command()
+            .try_get_matches_from(["typesep", "dump", "model", "x"])
+            .unwrap();
+        assert_eq!(
+            defaulted
+                .subcommand_matches("dump")
+                .and_then(|dump| dump.subcommand_matches("model"))
+                .and_then(|model| model.get_one::<String>("source"))
+                .map(String::as_str),
+            Some("sep"),
+            "a name is the SEP's unless the flag says otherwise"
+        );
+    }
+
+    #[test]
+    fn a_name_goes_to_the_source_named_and_an_address_to_its_site() {
+        let lwp = "https://www.wittgensteinproject.org/w/index.php/Zettel";
+        let sep = "https://plato.stanford.edu/entries/kant/";
+        assert_eq!(sources().for_input("kant", &Sep).key(), "sep");
+        assert_eq!(sources().for_input("Zettel", &Lwp).key(), "lwp");
+        assert_eq!(sources().for_input(lwp, &Sep).key(), "lwp");
+        assert_eq!(sources().for_input(sep, &Lwp).key(), "sep");
+        let works = targets_for(&["Zettel".to_owned(), sep.to_owned()], None, &Lwp).unwrap();
+        assert_eq!(works[0].url, lwp);
+        assert_eq!(works[1].id, "kant");
+        assert!(
+            targets_for(&[lwp.to_owned()], Some("live"), &Sep).is_err(),
+            "the Wittgenstein Project has no editions"
+        );
+    }
+
+    #[test]
+    fn a_preset_of_the_source_is_used_when_every_work_asks_for_it() {
+        let lwp = Lwp.resolve("Zettel", None).unwrap();
+        let sep = Sep.resolve("kant", None).unwrap();
+        assert_eq!(source_preset(&[lwp.clone(), lwp.clone()]), Some("lwp"));
+        assert_eq!(
+            source_preset(std::slice::from_ref(&sep)),
+            None,
+            "the SEP asks for none"
+        );
+        assert_eq!(source_preset(&[lwp, sep]), None, "works of two sources");
+        assert_eq!(source_preset(&[]), None);
     }
 
     #[test]

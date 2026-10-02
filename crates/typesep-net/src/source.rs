@@ -164,17 +164,18 @@ impl Registry {
         self.iter().find(|source| source.key() == key)
     }
 
-    /// The source a bare name, or an address no source claims, goes to.
+    /// The source a bare name, or an address no source claims, goes to unless the user names
+    /// another.
     pub fn default_source(&self) -> &'static dyn Source {
         self.sources[0]
     }
 
-    /// The source whose site `input` is on, else the default one, which then says why it
-    /// cannot read it.
-    pub fn for_input(&self, input: &str) -> &'static dyn Source {
+    /// The source whose site `input` is on, else `bare`, the one the user has a name that is
+    /// not an address looked up in, which then says why it cannot read it.
+    pub fn for_input(&self, input: &str, bare: &'static dyn Source) -> &'static dyn Source {
         self.iter()
             .find(|source| source.claims(input))
-            .unwrap_or_else(|| self.default_source())
+            .unwrap_or(bare)
     }
 
     /// The keys of what `--sections` can name in any source, each once, in the order the
