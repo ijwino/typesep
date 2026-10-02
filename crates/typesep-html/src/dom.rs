@@ -78,6 +78,17 @@ pub fn next_element(node: Ref<'_>) -> Option<ElementRef<'_>> {
     None
 }
 
+pub fn prev_element(node: Ref<'_>) -> Option<ElementRef<'_>> {
+    let mut prev = node.prev_sibling();
+    while let Some(n) = prev {
+        if let Some(el) = ElementRef::wrap(n) {
+            return Some(el);
+        }
+        prev = n.prev_sibling();
+    }
+    None
+}
+
 pub fn has_id_or_name(el: &ElementRef) -> bool {
     el.attr("id").is_some() || el.attr("name").is_some()
 }

@@ -1,5 +1,7 @@
+pub mod css;
 pub mod dom;
 pub mod js;
+pub mod walk;
 
 pub use regex;
 pub use scraper;

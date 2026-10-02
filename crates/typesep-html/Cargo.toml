@@ -1,12 +1,17 @@
 [package]
 name = "typesep-html"
-description = "typesep HTML helpers: the DOM queries and the JavaScript string semantics the parsers share"
+description = "typesep HTML helpers: the DOM queries and the JavaScript string semantics the parsers share, and a walker that reads standard HTML into the document model"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
+typesep-model.workspace = true
 scraper.workspace = true
 ego-tree.workspace = true
 regex.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

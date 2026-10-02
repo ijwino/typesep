@@ -3239,6 +3239,9 @@ dependencies = [
  "ego-tree",
  "regex",
  "scraper",
+ "serde_json",
+ "typesep-model",
+ "url",
 ]
 
 [[package]]
