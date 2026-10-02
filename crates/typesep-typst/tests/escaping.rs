@@ -726,13 +726,14 @@ fn margin_notes_placed(sets: &[&str]) -> Vec<(usize, bool, f64)> {
     placed
 }
 
-/// The halfletter page is 396pt wide with margins of 38.88pt on either side.
+/// The halfletter page is 396pt wide with margins of 38.88pt on either side; `x` is where a
+/// note starts.
 fn in_left_margin(x: f64) -> bool {
-    x < 38.88
+    (0.0..38.88).contains(&x)
 }
 
 fn in_right_margin(x: f64) -> bool {
-    x > 396.0 - 38.88
+    (396.0 - 38.88..396.0).contains(&x)
 }
 
 #[test]
@@ -778,6 +779,73 @@ fn a_margin_note_is_in_the_margin_beside_its_column_on_mirrored_pages_too() {
         placed.iter().any(|(page, left, _)| page % 2 == 1 && *left),
         "a left column on a recto keeps its note on the left: {placed:?}"
     );
+}
+
+#[test]
+fn a_margin_note_where_a_line_breaks_is_beside_the_line_its_box_is_on() {
+    let words = ["pleasure", "and", "pain", "are", "felt", "as", "such"];
+    let mut children = Vec::new();
+    for k in 0..120 {
+        children.push(text(&format!("{} ", words[k % words.len()])));
+        if k % 3 == 2 {
+            children.push(Inline::MarginNote {
+                children: vec![text(&format!("n{k:03}"))],
+            });
+            children.push(text(" "));
+        }
+    }
+    for sets in [&[][..], &["page.twoside=true"][..]] {
+        let document = compile(&marked(&[para(children.clone())]), sets).1.unwrap();
+        let mut found = 0;
+        for (index, page) in document.pages().iter().enumerate() {
+            let mut lines = Vec::new();
+            line_runs(&page.frame, 0.0, 0.0, &mut lines);
+            let page_number = index + 1;
+            for (x, y, run) in &lines {
+                if !run.starts_with('n') || run.len() != 4 {
+                    continue;
+                }
+                found += 1;
+                let outer_right = sets.len() == 1 && page_number % 2 == 1;
+                if outer_right {
+                    assert!(
+                        in_right_margin(*x),
+                        "{sets:?} page {page_number}: {run} at {x}"
+                    );
+                } else {
+                    assert!(
+                        in_left_margin(*x),
+                        "{sets:?} page {page_number}: {run} at {x}"
+                    );
+                }
+                assert!(
+                    lines
+                        .iter()
+                        .any(|(_, other, text)| !text.starts_with('n') && (other - y).abs() < 0.5),
+                    "{sets:?} page {page_number}: {run} is level with a line of text"
+                );
+            }
+        }
+        assert_eq!(found, 40, "{sets:?}: every note is set");
+    }
+}
+
+/// Every text run of `frame` with the x and baseline y it is set at.
+fn line_runs(frame: &Frame, x: f64, y: f64, out: &mut Vec<(f64, f64, String)>) {
+    for (pos, item) in frame.items() {
+        match item {
+            FrameItem::Group(group) => line_runs(
+                &group.frame,
+                x + pos.x.to_pt() + group.transform.tx.to_pt(),
+                y + pos.y.to_pt() + group.transform.ty.to_pt(),
+                out,
+            ),
+            FrameItem::Text(run) => {
+                out.push((x + pos.x.to_pt(), y + pos.y.to_pt(), run.text.to_string()))
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The x at which each glyph starts on its page, with the text it sets.

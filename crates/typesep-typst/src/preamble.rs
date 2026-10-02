@@ -820,7 +820,8 @@ pub const EMITTERS: &[Emitter] = &[
 /// It is set level with its line in the margin beside its column when there are columns,
 /// else in the outer margin of mirrored pages (as LaTeX's `\marginpar` is), else in the
 /// left one; and in the line instead when it is wider than that margin. `space` is the space
-/// that followed it in the text, which it gives back only there.
+/// that followed it in the text, which it gives back only there. Where the note is placed is
+/// read inside its box: a line may break between the box and what comes before it.
 fn helper_definition(view: &View<'_>, helper: Helper) -> String {
     let around = gap(view, view.body() * 0.5);
     match helper {
@@ -841,7 +842,7 @@ fn helper_definition(view: &View<'_>, helper: Helper) -> String {
                 "false".to_owned()
             };
             format!(
-                "#let fs-margin-note(body, space: false) = context {{\n  set text(size: fs-note-size)\n  let at = here().position()\n  let (left-margin, right-margin) = if {twoside} and calc.even(at.page) {{ ({outer}, {inner}) }} else {{ ({inner}, {outer}) }}\n  let beside-right = {beside_right}\n  let gap = 0.6em.to-absolute()\n  let room = (if beside-right {{ right-margin }} else {{ left-margin }}) - 2 * gap\n  if measure(body).width > room {{ if space {{ body + [ ] }} else {{ body }} }} else if beside-right {{\n    box(width: 0pt, place(top + left, dx: {width} - right-margin + gap - at.x, dy: -1em, body))\n  }} else {{\n    box(width: 0pt, place(top + right, dx: left-margin - gap - at.x, dy: -1em, body))\n  }}\n}}",
+                "#let fs-margin-note(body, space: false) = context {{\n  set text(size: fs-note-size)\n  let margins(at) = if {twoside} and calc.even(at.page) {{ ({outer}, {inner}) }} else {{ ({inner}, {outer}) }}\n  let beside-right(at) = {beside_right}\n  let gap = 0.6em.to-absolute()\n  let at = here().position()\n  let (left-margin, right-margin) = margins(at)\n  let room = (if beside-right(at) {{ right-margin }} else {{ left-margin }}) - 2 * gap\n  if measure(body).width > room {{ if space {{ body + [ ] }} else {{ body }} }} else {{\n    box(width: 0pt, context {{\n      let at = here().position()\n      let (left-margin, right-margin) = margins(at)\n      if beside-right(at) {{\n        place(top + left, dx: {width} - right-margin + gap - at.x, dy: -1em, body)\n      }} else {{\n        place(top + right, dx: left-margin - gap - at.x, dy: -1em, body)\n      }}\n    }})\n  }}\n}}",
                 width = typst_pt(width),
                 inner = typst_pt(inner),
                 outer = typst_pt(outer),
