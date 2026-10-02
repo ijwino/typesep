@@ -1,10 +1,13 @@
+use typesep_model::{Doc, Meta};
 use typesep_net::library::{Place, PlaceError, Store};
 use typesep_net::net::{LoadError, Net};
-use typesep_net::source::{Held, LoadOptions, Loaded, ResolveError, SectionSpec, Source, WorkRef};
+use typesep_net::source::{
+    Held, LoadOptions, Loaded, ResolveError, SectionSpec, Source, WorkRef, volume_meta,
+};
 
 use crate::address::{api_url, is_site_url, page_url, place_for, shell_word, title_of};
 use crate::library::list_texts;
-use crate::parse::{ParseOptions, SOURCE, parse_page};
+use crate::parse::{PUBLISHER, ParseOptions, SOURCE, parse_page};
 
 /// The Ludwig Wittgenstein Project.
 pub struct Lwp;
@@ -102,6 +105,20 @@ impl Source for Lwp {
 
     fn preset(&self) -> &'static str {
         PRESET
+    }
+
+    /// Texts of the project as one volume: the byline they share, the project as publisher,
+    /// "N texts from the Ludwig Wittgenstein Project" for a cover without a byline, and each
+    /// text's rights as its colophon states them when they are not all the same.
+    fn volume(&self, docs: &[&Doc], title: &str) -> Meta {
+        let mut meta = volume_meta(docs, title);
+        meta.origin.publisher = PUBLISHER.to_owned();
+        meta.credit = if docs.len() > 1 {
+            format!("{} texts from the {PUBLISHER}", docs.len())
+        } else {
+            String::new()
+        };
+        meta
     }
 }
 
@@ -234,6 +251,38 @@ mod tests {
             }
         );
         assert_eq!(Lwp.held(&store)[0].revision, "12");
+    }
+
+    #[test]
+    fn texts_of_the_project_make_a_volume_of_its_wording_with_each_texts_rights() {
+        let doc = |id: &str, terms: &str| {
+            let answer = answer(1, "<p>Text.</p>")
+                .replace("An invented text. Dieses Werk ist gemeinfrei.", terms);
+            parse_page(
+                &answer,
+                &ParseOptions {
+                    id,
+                    url: "https://www.wittgensteinproject.org/w/index.php/X",
+                    fetched_at: "",
+                },
+            )
+            .unwrap()
+        };
+        let free = doc("Eins", "Erfunden. Dieses Werk ist gemeinfrei.");
+        let same = doc("Zwei", "Erfunden. Dieses Werk ist gemeinfrei.");
+        let other = doc("Drei", "Erfunden, und auch dieses ist gemeinfrei.");
+        let meta = Lwp.volume(&[&free, &same], "Zwei Hefte");
+        assert_eq!(meta.title, "Zwei Hefte");
+        assert_eq!(meta.byline, "Ludwig Wittgenstein");
+        assert_eq!(meta.origin.publisher, "Ludwig Wittgenstein Project");
+        assert_eq!(meta.credit, "2 texts from the Ludwig Wittgenstein Project");
+        assert_eq!(meta.rights, free.meta.rights, "the rights they share");
+        let meta = Lwp.volume(&[&free, &other], "Andere");
+        assert_eq!(
+            meta.rights.terms,
+            "Some Remarks: Erfunden. Dieses Werk ist gemeinfrei. Some Remarks: Erfunden, und auch dieses ist gemeinfrei.",
+            "each text's own terms, under its title"
+        );
     }
 
     #[test]

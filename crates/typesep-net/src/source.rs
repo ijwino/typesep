@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use typesep_model::Doc;
+use typesep_model::{Doc, Meta, Notice, Rights};
 
 use crate::library::{Place, PlaceError, Store};
 use crate::net::{LoadError, Net};
@@ -143,6 +143,82 @@ pub trait Source: Sync {
     fn preset(&self) -> &'static str {
         ""
     }
+    /// The metadata of `docs`, works of this source, typeset as one volume titled `title`.
+    fn volume(&self, docs: &[&Doc], title: &str) -> Meta {
+        volume_meta(docs, title)
+    }
+}
+
+/// The metadata of `docs` typeset as one volume titled `title`, in words of no source in
+/// particular: the first work's language and source; the byline, publisher and rights the
+/// works share, and where they differ no byline or publisher and each work's rights under its
+/// title; everyone's contributors and macros; no dateline or address of its own; and for a
+/// cover with no byline the credit "N works".
+pub fn volume_meta(docs: &[&Doc], title: &str) -> Meta {
+    let mut meta = docs[0].meta.clone();
+    meta.title = title.to_owned();
+    let shared = |pick: fn(&Meta) -> &String| {
+        let first = pick(&docs[0].meta);
+        if docs.iter().all(|doc| pick(&doc.meta) == first) {
+            first.clone()
+        } else {
+            String::new()
+        }
+    };
+    meta.byline = shared(|meta| &meta.byline);
+    meta.origin.publisher = shared(|meta| &meta.origin.publisher);
+    meta.dateline = String::new();
+    meta.origin.url = String::new();
+    meta.rights = volume_rights(docs);
+    meta.credit = if docs.len() > 1 {
+        format!("{} works", docs.len())
+    } else {
+        String::new()
+    };
+    meta.contributors.clear();
+    meta.macros.clear();
+    for doc in docs {
+        for contributor in &doc.meta.contributors {
+            if !meta.contributors.contains(contributor) {
+                meta.contributors.push(contributor.clone());
+            }
+        }
+        meta.macros
+            .extend(doc.meta.macros.iter().map(|(k, v)| (k.clone(), v.clone())));
+    }
+    meta
+}
+
+/// The rights of works typeset together: theirs, when they are all the same; else each work's
+/// statement and terms under its title in the terms, and its notices under its title too, so
+/// that no work is said to be under rights it is not under.
+pub fn volume_rights(docs: &[&Doc]) -> Rights {
+    let first = &docs[0].meta.rights;
+    if docs.iter().all(|doc| doc.meta.rights == *first) {
+        return first.clone();
+    }
+    let mut terms: Vec<String> = Vec::new();
+    let mut notices: Vec<Notice> = Vec::new();
+    for doc in docs {
+        let rights = &doc.meta.rights;
+        let own = [rights.statement.as_str(), rights.terms.as_str()]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !own.is_empty() {
+            terms.push(format!("{}: {own}", doc.meta.title));
+        }
+        notices.extend(rights.notices.iter().map(|notice| Notice {
+            text: format!("{}: {}", doc.meta.title, notice.text),
+            link: notice.link.clone(),
+        }));
+    }
+    Rights {
+        statement: String::new(),
+        terms: terms.join(" "),
+        notices,
+    }
 }
 
 /// The sources typesep knows, the first being the one a name that is not an address goes to.
@@ -262,6 +338,83 @@ mod tests {
             linked: false,
         },
     ];
+
+    fn work(id: &str, byline: &str, terms: &str, notice: &str) -> Doc {
+        let mut doc = Doc::default();
+        doc.meta.id = id.into();
+        doc.meta.title = format!("Title {id}");
+        doc.meta.byline = byline.into();
+        doc.meta.lang = "de".into();
+        doc.meta.origin.source = "x".into();
+        doc.meta.origin.publisher = "A Press".into();
+        doc.meta.origin.url = format!("https://example.org/{id}");
+        doc.meta.dateline = "once".into();
+        doc.meta.contributors = vec![typesep_model::Contributor {
+            name: byline.into(),
+            role: "author".into(),
+        }];
+        doc.meta.rights = Rights {
+            statement: String::new(),
+            terms: terms.into(),
+            notices: vec![Notice {
+                text: notice.into(),
+                link: Some(typesep_model::NoticeLink {
+                    url: "https://example.org/l".into(),
+                    label: "example.org/l".into(),
+                }),
+            }],
+        };
+        doc
+    }
+
+    #[test]
+    fn a_volume_keeps_what_its_works_share_and_each_works_rights_where_they_differ() {
+        let (a, b) = (
+            work("a", "A. Author", "Free to all.", "See the licence."),
+            work("b", "A. Author", "Free to all.", "See the licence."),
+        );
+        let meta = volume_meta(&[&a, &b], "Both");
+        assert_eq!(meta.title, "Both");
+        assert_eq!(meta.byline, "A. Author", "the byline they share");
+        assert_eq!(meta.origin.publisher, "A Press");
+        assert_eq!(meta.credit, "2 works");
+        assert_eq!((meta.dateline.as_str(), meta.origin.url.as_str()), ("", ""));
+        assert_eq!(meta.lang, "de");
+        assert_eq!(meta.contributors.len(), 1, "each contributor once");
+        assert_eq!(
+            meta.rights, a.meta.rights,
+            "the same rights are kept as they are"
+        );
+
+        let mut c = work("c", "B. Other", "Under a licence.", "Ask first.");
+        c.meta.origin.publisher = "B Press".into();
+        let meta = volume_meta(&[&a, &c], "Mixed");
+        assert_eq!(meta.byline, "");
+        assert_eq!(meta.origin.publisher, "");
+        assert_eq!(meta.contributors.len(), 2);
+        assert_eq!(
+            meta.rights.terms, "Title a: Free to all. Title c: Under a licence.",
+            "each work's terms under its title"
+        );
+        assert_eq!(
+            meta.rights
+                .notices
+                .iter()
+                .map(|n| n.text.as_str())
+                .collect::<Vec<_>>(),
+            ["Title a: See the licence.", "Title c: Ask first."]
+        );
+        assert!(
+            meta.rights.notices.iter().all(|n| n.link.is_some()),
+            "links kept"
+        );
+        assert_eq!(meta.rights.statement, "");
+        assert_eq!(
+            volume_meta(&[&a], "One").credit,
+            "",
+            "one work needs no credit"
+        );
+    }
 
     fn keys(names: &[&str]) -> BTreeSet<String> {
         names.iter().map(|name| (*name).to_owned()).collect()

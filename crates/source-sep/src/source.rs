@@ -1,10 +1,11 @@
-use typesep_model::Doc;
+use typesep_model::{Doc, Meta};
 use typesep_net::library::{Place, PlaceError, Store};
 use typesep_net::net::{LoadError, Net};
 use typesep_net::source::{Held, LoadOptions, Loaded, ResolveError, SectionSpec, Source, WorkRef};
 
 use crate::entry::{EntryTarget, load_entry, normalize_entry, related_entry_urls};
 use crate::library::{HOST, list_entries, place_for};
+use crate::parse::volume_meta;
 use crate::sections::SECTIONS;
 
 /// The Stanford Encyclopedia of Philosophy.
@@ -90,6 +91,12 @@ impl Source for Sep {
 
     fn related(&self, doc: &Doc) -> Vec<String> {
         related_entry_urls(doc)
+    }
+
+    /// The SEP's own wording for a volume of its entries: no byline, the merged rights, and
+    /// "N entries from the Stanford Encyclopedia of Philosophy".
+    fn volume(&self, docs: &[&Doc], title: &str) -> Meta {
+        volume_meta(docs, title)
     }
 }
 

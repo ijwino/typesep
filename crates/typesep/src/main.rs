@@ -9,7 +9,6 @@ use clap::{Arg, ArgAction, ArgMatches, Args, CommandFactory, FromArgMatches, Par
 use output::{file_name_for, job_name_for, output_file};
 use source_lwp::Lwp;
 use source_sep::Sep;
-use source_sep::parse::volume_meta;
 use typesep_epub::{EpubOptions, build_epub};
 use typesep_model::canonical::model_json;
 use typesep_model::{Doc, Meta};
@@ -895,7 +894,7 @@ fn group_entries<'a>(docs: &'a [Doc], merge: Option<&str>) -> Vec<Group<'a>> {
             let docs: Vec<&Doc> = docs.iter().collect();
             vec![Group {
                 name: name.to_owned(),
-                volume: Some(volume_meta(&docs, name)),
+                volume: Some(volume_for(&docs, name)),
                 docs,
             }]
         }
@@ -907,6 +906,17 @@ fn group_entries<'a>(docs: &'a [Doc], merge: Option<&str>) -> Vec<Group<'a>> {
                 volume: None,
             })
             .collect(),
+    }
+}
+
+/// The metadata of `docs` typeset as one volume: in the words of their source when they are
+/// all of one, else in words of none.
+fn volume_for(docs: &[&Doc], title: &str) -> Meta {
+    let source = docs[0].meta.origin.source.as_str();
+    let one_source = docs.iter().all(|doc| doc.meta.origin.source == source);
+    match sources().get(source).filter(|_| one_source) {
+        Some(source) => source.volume(docs, title),
+        None => typesep_net::source::volume_meta(docs, title),
     }
 }
 
@@ -2152,6 +2162,28 @@ mod tests {
         );
         assert_eq!(source_preset(&[lwp, sep]), None, "works of two sources");
         assert_eq!(source_preset(&[]), None);
+    }
+
+    #[test]
+    fn a_volume_is_in_the_words_of_its_works_source_or_of_none() {
+        let work = |source: &str, id: &str| {
+            let mut doc = Doc::default();
+            doc.meta.id = id.into();
+            doc.meta.origin.source = source.into();
+            doc.meta.origin.publisher = "P".into();
+            doc
+        };
+        let (sep, lwp) = (work("sep", "a"), work("lwp", "b"));
+        assert_eq!(
+            volume_for(&[&sep, &sep], "V").credit,
+            "2 entries from the Stanford Encyclopedia of Philosophy"
+        );
+        assert_eq!(
+            volume_for(&[&lwp, &lwp], "V").credit,
+            "2 texts from the Ludwig Wittgenstein Project"
+        );
+        assert_eq!(volume_for(&[&sep, &lwp], "V").credit, "2 works");
+        assert_eq!(volume_for(&[&work("other", "c")], "V").credit, "");
     }
 
     #[test]
