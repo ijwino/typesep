@@ -11,11 +11,15 @@ use typesep_typst::images::Image;
 use typesep_typst::{EmitOptions, Fonts, SepWorld, compile_pdf, emit_document};
 
 /// A document made up for these tests that uses every construct the model has for sources
-/// other than the SEP at least once, typeset to PDF (as is and in two columns on mirrored
-/// pages) and to EPUB. With `TYPESEP_FIXTURE_OUT` naming a directory, the outputs are left
-/// there for a look: `fixture.typ`, `fixture.pdf`, `fixture.epub`, `fixture-2col.typ` and
-/// `fixture-2col.pdf`.
+/// other than the SEP at least once, typeset to PDF (as is, on mirrored pages, and in two
+/// columns on mirrored pages) and to EPUB. With `TYPESEP_FIXTURE_OUT` naming a directory, the
+/// outputs are left there for a look: `fixture.typ`, `fixture.pdf`, `fixture.epub`,
+/// `fixture-twoside.typ`, `fixture-twoside.pdf`, `fixture-2col.typ` and `fixture-2col.pdf`.
 const OUT: &str = "TYPESEP_FIXTURE_OUT";
+
+/// The mirrored variant: one column on pages whose outer margin, where margin notes go, is
+/// wider than the inner one.
+const TWO_SIDED: [&str; 2] = ["page.twoside=true", "page.margins.outer=0.9in"];
 
 /// The two-column variant: mirrored pages whose outer margin is wider than the inner one,
 /// so a margin note shows which side of the page it reads.
@@ -451,13 +455,15 @@ fn pdf(doc: &Doc, style: &Style, images: &BTreeMap<String, Image>, name: &str) -
 }
 
 #[test]
-fn the_fixture_typesets_to_pdf_in_one_column_and_in_two() {
+fn the_fixture_typesets_to_pdf_in_one_column_on_plain_and_mirrored_pages_and_in_two() {
     let doc = fixture();
     let dir = tempfile::tempdir().unwrap();
     let images = images(dir.path());
     let one = pdf(&doc, &style(&[]), &images, "fixture");
+    let mirrored = pdf(&doc, &style(&TWO_SIDED), &images, "fixture-twoside");
     let two = pdf(&doc, &style(&TWO_COLUMNS), &images, "fixture-2col");
     assert!(one > 2, "{one} pages");
+    assert!(mirrored > 2, "{mirrored} pages");
     assert!(two > 1, "{two} pages");
 }
 

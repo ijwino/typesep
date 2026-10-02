@@ -664,3 +664,173 @@ fn a_helper_is_in_the_preamble_only_when_the_document_uses_its_construct() {
         "the rest of the preamble is the same"
     );
 }
+
+/// Every text run of `frame` with the x it starts at on the page.
+fn runs_at(frame: &Frame, x: f64, out: &mut Vec<(f64, typst::text::TextItem)>) {
+    for (pos, item) in frame.items() {
+        match item {
+            FrameItem::Group(group) => runs_at(
+                &group.frame,
+                x + pos.x.to_pt() + group.transform.tx.to_pt(),
+                out,
+            ),
+            FrameItem::Text(run) => out.push((x + pos.x.to_pt(), run.clone())),
+            _ => {}
+        }
+    }
+}
+
+/// Paragraphs that each open with a margin note `nKK` and the word `mKK`, long enough to
+/// fill several pages: for each note, the page it is on, whether its paragraph starts in
+/// the left half of the page, and the x the note is set at.
+fn margin_notes_placed(sets: &[&str]) -> Vec<(usize, bool, f64)> {
+    let filler = ["pleasure", "and", "pain", "are", "felt", "as", "such"]
+        .iter()
+        .cycle()
+        .take(90)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let blocks: Vec<Block> = (1..=14)
+        .map(|k| {
+            para(vec![
+                Inline::MarginNote {
+                    children: vec![text(&format!("n{k:02}"))],
+                },
+                text(&format!(" m{k:02} {filler}")),
+            ])
+        })
+        .collect();
+    let document = compile(&marked(&blocks), sets).1.unwrap();
+    let mut placed = Vec::new();
+    for (index, page) in document.pages().iter().enumerate() {
+        let mut runs = Vec::new();
+        runs_at(&page.frame, 0.0, &mut runs);
+        for k in 1..=14 {
+            let note = runs
+                .iter()
+                .find(|(_, run)| run.text.as_str() == format!("n{k:02}"));
+            let word = runs
+                .iter()
+                .find(|(_, run)| run.text.contains(&format!("m{k:02}")));
+            if let (Some((note_x, _)), Some((word_x, _))) = (note, word) {
+                placed.push((index + 1, *word_x < 198.0, *note_x));
+            }
+        }
+    }
+    assert_eq!(
+        placed.len(),
+        14,
+        "every note is found beside its line: {placed:?}"
+    );
+    placed
+}
+
+/// The halfletter page is 396pt wide with margins of 38.88pt on either side.
+fn in_left_margin(x: f64) -> bool {
+    x < 38.88
+}
+
+fn in_right_margin(x: f64) -> bool {
+    x > 396.0 - 38.88
+}
+
+#[test]
+fn a_margin_note_is_in_the_left_margin_of_a_page_that_is_not_mirrored() {
+    for (page, _, x) in margin_notes_placed(&[]) {
+        assert!(in_left_margin(x), "page {page}: x {x}");
+    }
+}
+
+#[test]
+fn a_margin_note_is_in_the_outer_margin_of_a_mirrored_page() {
+    let placed = margin_notes_placed(&["page.twoside=true"]);
+    for &(page, _, x) in &placed {
+        if page % 2 == 1 {
+            assert!(in_right_margin(x), "recto {page}: x {x}");
+        } else {
+            assert!(in_left_margin(x), "verso {page}: x {x}");
+        }
+    }
+    assert!(
+        placed.iter().any(|(page, _, _)| page % 2 == 0),
+        "{placed:?}"
+    );
+    assert!(
+        placed.iter().any(|(page, _, _)| page % 2 == 1),
+        "{placed:?}"
+    );
+}
+
+#[test]
+fn a_margin_note_is_in_the_margin_beside_its_column_on_mirrored_pages_too() {
+    let placed = margin_notes_placed(&["page.columns=2", "page.twoside=true"]);
+    for &(page, left_column, x) in &placed {
+        if left_column {
+            assert!(in_left_margin(x), "page {page}, left column: x {x}");
+        } else {
+            assert!(in_right_margin(x), "page {page}, right column: x {x}");
+        }
+    }
+    assert!(placed.iter().any(|(_, left, _)| *left), "{placed:?}");
+    assert!(placed.iter().any(|(_, left, _)| !*left), "{placed:?}");
+    assert!(
+        placed.iter().any(|(page, left, _)| page % 2 == 1 && *left),
+        "a left column on a recto keeps its note on the left: {placed:?}"
+    );
+}
+
+/// The x at which each glyph starts on its page, with the text it sets.
+fn glyph_starts(document: &PagedDocument) -> Vec<(String, f64)> {
+    let mut runs = Vec::new();
+    for page in document.pages() {
+        runs_at(&page.frame, 0.0, &mut runs);
+    }
+    let mut out = Vec::new();
+    for (x, run) in runs {
+        let mut at = x;
+        for glyph in &run.glyphs {
+            let range = glyph.range.start as usize..glyph.range.end as usize;
+            out.push((
+                run.text[range].to_owned(),
+                at + glyph.x_offset.at(run.size).to_pt(),
+            ));
+            at += glyph.x_advance.at(run.size).to_pt();
+        }
+    }
+    out
+}
+
+/// The distances from `q` to `z` and from `z` to the comma, where `qz,` is first set.
+fn qz_comma(blocks: &[Block]) -> (f64, f64) {
+    let document = compile(&marked(blocks), &[]).1.unwrap();
+    let glyphs = glyph_starts(&document);
+    let at = glyphs
+        .windows(3)
+        .position(|w| w[0].0 == "q" && w[1].0 == "z" && w[2].0 == ",")
+        .unwrap_or_else(|| panic!("{glyphs:?}"));
+    (
+        glyphs[at + 1].1 - glyphs[at].1,
+        glyphs[at + 2].1 - glyphs[at + 1].1,
+    )
+}
+
+#[test]
+fn a_spaced_word_takes_no_space_after_its_last_letter() {
+    let (plain_gap, plain_comma) = qz_comma(&[para(vec![text("an qz, after")])]);
+    let (spaced_gap, spaced_comma) = qz_comma(&[para(vec![
+        text("an "),
+        Inline::Spaced {
+            children: vec![text("qz")],
+        },
+        text(", after"),
+    ])]);
+    assert!(
+        spaced_gap > plain_gap + 1.0,
+        "the letters are spaced: {spaced_gap} against {plain_gap}"
+    );
+    assert!(
+        (spaced_comma - plain_comma).abs() < 0.5,
+        "the comma follows the last letter as it does unspaced: {spaced_comma} against {plain_comma}"
+    );
+}

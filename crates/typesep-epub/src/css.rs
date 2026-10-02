@@ -157,7 +157,7 @@ pub fn construct_rules(view: &View, used: &BTreeSet<Construct>) -> Vec<String> {
             Construct::Indent(em) => {
                 lines.push(format!("p.indent-{em}{{margin-left:{em}em;text-indent:0;}}"))
             }
-            Construct::Spaced => lines.push("span.spaced{letter-spacing:0.2em;}".to_owned()),
+            Construct::Spaced => lines.push("span.spaced{letter-spacing:0.2em;margin-right:-0.2em;}".to_owned()),
             Construct::SmallCaps => {
                 lines.push("span.smallcaps{font-variant:small-caps;}".to_owned())
             }

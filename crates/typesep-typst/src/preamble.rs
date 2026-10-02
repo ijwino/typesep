@@ -817,21 +817,31 @@ pub const EMITTERS: &[Emitter] = &[
 
 /// The definition of `helper`. The margin note reads the page geometry from the style, so
 /// it knows which margin is on the left of the page it lands on, and which column it is in.
-/// It is set in the margin of its column's side of the page, level with its line, and in
-/// the line instead when it is wider than that margin; `space` is the space that followed
-/// it in the text, which it gives back only there.
+/// It is set level with its line in the margin beside its column when there are columns,
+/// else in the outer margin of mirrored pages (as LaTeX's `\marginpar` is), else in the
+/// left one; and in the line instead when it is wider than that margin. `space` is the space
+/// that followed it in the text, which it gives back only there.
 fn helper_definition(view: &View<'_>, helper: Helper) -> String {
     let around = gap(view, view.body() * 0.5);
     match helper {
+        // Typst tracks between the letters of a run and not after its last one, so a comma
+        // or a space follows a spaced word as it follows any other; CSS letter-spacing does
+        // follow the last letter, which the EPUB's rule takes back.
         Helper::Spaced => "#let fs-spaced(body) = text(tracking: 0.2em, body)".to_owned(),
         Helper::MarginNote => {
             let (width, _) = view.paper_pt();
             let inner = view.pt("page.margins.inner") + view.pt("page.bindingOffset");
             let outer = view.pt("page.margins.outer");
+            let twoside = view.bool("page.twoside");
+            let beside_right = if view.int("page.columns") > 1 {
+                format!("at.x > {} / 2", typst_pt(width))
+            } else if twoside {
+                "calc.odd(at.page)".to_owned()
+            } else {
+                "false".to_owned()
+            };
             format!(
-                "#let fs-margin-note(body, space: false) = context {{\n  set text(size: fs-note-size)\n  let at = here().position()\n  let (left-margin, right-margin) = if {twoside} and calc.even(at.page) {{ ({outer}, {inner}) }} else {{ ({inner}, {outer}) }}\n  let beside-right = {columns} > 1 and at.x > {width} / 2\n  let gap = 0.6em.to-absolute()\n  let room = (if beside-right {{ right-margin }} else {{ left-margin }}) - 2 * gap\n  if measure(body).width > room {{ if space {{ body + [ ] }} else {{ body }} }} else if beside-right {{\n    box(width: 0pt, place(top + left, dx: {width} - right-margin + gap - at.x, dy: -1em, body))\n  }} else {{\n    box(width: 0pt, place(top + right, dx: left-margin - gap - at.x, dy: -1em, body))\n  }}\n}}",
-                twoside = view.bool("page.twoside"),
-                columns = view.int("page.columns"),
+                "#let fs-margin-note(body, space: false) = context {{\n  set text(size: fs-note-size)\n  let at = here().position()\n  let (left-margin, right-margin) = if {twoside} and calc.even(at.page) {{ ({outer}, {inner}) }} else {{ ({inner}, {outer}) }}\n  let beside-right = {beside_right}\n  let gap = 0.6em.to-absolute()\n  let room = (if beside-right {{ right-margin }} else {{ left-margin }}) - 2 * gap\n  if measure(body).width > room {{ if space {{ body + [ ] }} else {{ body }} }} else if beside-right {{\n    box(width: 0pt, place(top + left, dx: {width} - right-margin + gap - at.x, dy: -1em, body))\n  }} else {{\n    box(width: 0pt, place(top + right, dx: left-margin - gap - at.x, dy: -1em, body))\n  }}\n}}",
                 width = typst_pt(width),
                 inner = typst_pt(inner),
                 outer = typst_pt(outer),

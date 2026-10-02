@@ -56,6 +56,10 @@ fn list_type(numbering: typesep_model::ListNumbering) -> &'static str {
     }
 }
 
+/// The id of the section that sets the notes a document holds itself as an appendix, which
+/// the contents link to.
+pub const OWN_NOTES_ID: &str = "notes-appendix";
+
 pub struct NoteBody {
     pub id: String,
     pub label: String,
@@ -708,7 +712,7 @@ fn notes_section(ctx: &mut Ctx) -> String {
         return String::new();
     }
     let notes = std::mem::take(&mut ctx.note_bodies);
-    let html = notes_html(&notes, ctx);
+    let html = notes_html(&notes, "", ctx);
     ctx.note_bodies = notes;
     html
 }
@@ -720,6 +724,7 @@ fn own_notes_html(ctx: &mut Ctx) -> String {
     if ctx.own_notes.is_empty() {
         return String::new();
     }
+    let section_id = ctx.id_attr(OWN_NOTES_ID.to_owned());
     let mut notes = Vec::new();
     let mut done: BTreeSet<String> = BTreeSet::new();
     let mut next = 0;
@@ -744,10 +749,11 @@ fn own_notes_html(ctx: &mut Ctx) -> String {
             blocks,
         });
     }
-    notes_html(&notes, ctx)
+    notes_html(&notes, &section_id, ctx)
 }
 
-fn notes_html(notes: &[NoteBody], ctx: &mut Ctx) -> String {
+/// The notes as a section of their own; `section_id` is the attribute that names it, if any.
+fn notes_html(notes: &[NoteBody], section_id: &str, ctx: &mut Ctx) -> String {
     let asides: Vec<String> = notes
         .iter()
         .map(|note| {
@@ -783,7 +789,7 @@ fn notes_html(notes: &[NoteBody], ctx: &mut Ctx) -> String {
         })
         .collect();
     format!(
-        "<section class=\"notes\" epub:type=\"endnotes\"><h2>Notes</h2>{}</section>",
+        "<section class=\"notes\" epub:type=\"endnotes\"{section_id}><h2>Notes</h2>{}</section>",
         asides.join("\n")
     )
 }

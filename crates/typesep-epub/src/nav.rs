@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use typesep_model::{AttachmentKind, Doc, TocItem};
 use typesep_style::View;
 
-use crate::xhtml::{esc, xml_id};
+use crate::xhtml::{OWN_NOTES_ID, esc, xml_id};
 
 fn render(
     items: &[TocItem],
@@ -65,7 +65,7 @@ pub fn nav_items(
         .map(|section| section.label.to_lowercase())
         .collect();
     let appendix = view.str("notes.style") == "appendix";
-    let extras: Vec<String> = doc
+    let listed: Vec<(AttachmentKind, String)> = doc
         .attachments
         .iter()
         .enumerate()
@@ -75,10 +75,27 @@ pub fn nav_items(
         })
         .filter_map(|(i, a)| {
             let id = xml_id(&format!("a{}--attachment", i + 1));
-            ids.contains(&id)
-                .then(|| format!("<li><a href=\"{file}#{id}\">{}</a></li>", esc(&a.title)))
+            ids.contains(&id).then(|| {
+                (
+                    a.kind,
+                    format!("<li><a href=\"{file}#{id}\">{}</a></li>", esc(&a.title)),
+                )
+            })
         })
         .collect();
+    let mut extras: Vec<String> = listed.iter().map(|(_, item)| item.clone()).collect();
+    if appendix && sections.contains("notes") && ids.contains(OWN_NOTES_ID) {
+        // The document's own notes are set after the attached notes pages, so they are
+        // listed after the last of them.
+        let at = listed
+            .iter()
+            .rposition(|(kind, _)| *kind == AttachmentKind::Notes)
+            .map_or(0, |last| last + 1);
+        extras.insert(
+            at,
+            format!("<li><a href=\"{file}#{OWN_NOTES_ID}\">Notes</a></li>"),
+        );
+    }
     let own = render(&doc.toc, 1, view.int("toc.depth"), file, &dropped, ids);
     if own.is_empty() && extras.is_empty() {
         return String::new();

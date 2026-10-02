@@ -739,7 +739,7 @@ fn the_stylesheet_has_rules_only_for_the_constructs_a_document_uses() {
     let members = epub_text(&spaced, &[], &BTreeMap::new());
     assert_eq!(
         members["OEBPS/style.css"],
-        format!("{base}\nspan.spaced{{letter-spacing:0.2em;}}")
+        format!("{base}\nspan.spaced{{letter-spacing:0.2em;margin-right:-0.2em;}}")
     );
 
     let members = epub_text(&with_every_construct("words"), &[], &BTreeMap::new());
@@ -808,4 +808,72 @@ fn notes_the_document_holds_are_an_appendix_in_the_order_the_text_refers_to_them
         "{page}"
     );
     assert!(!page.contains("Never referred to."), "{page}");
+}
+
+#[test]
+fn the_notes_the_document_holds_are_in_the_nav_when_they_are_an_appendix() {
+    let mut entry = with_note(vec![para("An attached note.")]);
+    entry.attachments.push(Attachment {
+        kind: AttachmentKind::Supplement,
+        title: "A Supplement".into(),
+        blocks: vec![para("Supplementary.")],
+        source_url: "https://plato.stanford.edu/entries/x/supplement.html".into(),
+        notes: None,
+    });
+    entry.body.push(Block::Para {
+        children: vec![
+            text("Own"),
+            Inline::NoteRef(NoteRef {
+                id: "cite_note-1".into(),
+                label: "2".into(),
+                href: "#cite_note-1".into(),
+                ref_id: None,
+            }),
+        ],
+        align: None,
+        indent_em: 0,
+    });
+    entry.notes = NoteTable::from([("cite_note-1".to_owned(), vec![para("Its own.")])]);
+
+    let members = epub_text(&entry, &["notes.style=appendix"], &BTreeMap::new());
+    let page = &members["OEBPS/entry-1.xhtml"];
+    assert!(
+        page.contains(
+            r#"<section class="notes" epub:type="endnotes" id="notes-appendix"><h2>Notes</h2>"#
+        ),
+        "{page}"
+    );
+    let nav = &members["OEBPS/nav.xhtml"];
+    assert!(
+        nav.contains(concat!(
+            r#"<li><a href="entry-1.xhtml#a1--attachment">Notes</a></li>"#,
+            r#"<li><a href="entry-1.xhtml#notes-appendix">Notes</a></li>"#,
+            r#"<li><a href="entry-1.xhtml#a2--attachment">A Supplement</a></li>"#
+        )),
+        "after the attached notes, before the supplement: {nav}"
+    );
+
+    let members = epub_text(&entry, &["notes.style=footnote"], &BTreeMap::new());
+    assert!(
+        !members["OEBPS/nav.xhtml"].contains("notes-appendix"),
+        "as footnotes they are no section of their own"
+    );
+
+    let style = resolve_style(ResolveOptions {
+        preset: Some("halfletter"),
+        file: None,
+        sets: vec!["notes.style=appendix".into()],
+    })
+    .unwrap();
+    let view = View::new(&style);
+    let images = BTreeMap::new();
+    let sections: BTreeSet<String> = ["supplements".to_owned()].into();
+    let mut ctx = Ctx::new(&view, &images, MathPass::Collect(Vec::new()));
+    let html = entry_html(&entry, &mut ctx, &sections);
+    assert!(!html.contains("notes-appendix"), "{html}");
+    let nav = nav_items(&entry, "entry-1.xhtml", &view, &sections, &ctx.ids);
+    assert!(
+        !nav.contains("notes-appendix"),
+        "without the notes, no entry for them: {nav}"
+    );
 }
