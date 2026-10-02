@@ -6,8 +6,9 @@ THIRD-PARTY-LICENSES.txt
 tools/
 typesep.config.yaml
 
-# The fixture corpus is thirty SEP entries and what they parse and typeset to. The entries are
-# copyright their authors and the SEP's Terms of Use grant no right to redistribute them,
+# The fixture corpus is thirty SEP entries and three texts of the Wittgenstein Project, and what
+# they parse and typeset to. The entries are copyright their authors and the SEP's Terms of Use
+# grant no right to redistribute them, and the project's texts are under licences of their own,
 # so the corpus lives outside the tree, under TYPESEP_TEST_CORPUS.
 crates/typesep/tests/data/
 crates/typesep/tests/snapshots/model/

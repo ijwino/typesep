@@ -119,9 +119,10 @@ struct Parity {
 
 const DEFAULT_EXEC: &str = "target/debug/typesep dump model {} --sections all --quiet";
 
-/// The corpus is thirty SEP entries and the models they parse to. It is not in this
-/// repository: the entries are copyright their authors and the SEP's Terms of Use grant no
-/// right to redistribute them, so it lives outside the tree. `TYPESEP_TEST_CORPUS` names the
+/// The corpus is thirty SEP entries and three texts of the Wittgenstein Project, and the models
+/// they parse to. It is not in this repository: the entries are copyright their authors and the
+/// SEP's Terms of Use grant no right to redistribute them, and the project's texts are under
+/// licences of their own, so it lives outside the tree. `TYPESEP_TEST_CORPUS` names the
 /// directory; crates/typesep/tests/model.rs describes what it holds.
 fn corpus_dir() -> PathBuf {
     let named = |name: &str| {
@@ -143,7 +144,7 @@ fn corpus_subdir(name: &str) -> PathBuf {
     let dir = corpus_dir().join(name);
     if !dir.is_dir() {
         fail(&format!(
-            "no corpus at {}. The thirty fixture entries and their models are not in this \
+            "no corpus at {}. The fixture entries and texts and their models are not in this \
              repository; point TYPESEP_TEST_CORPUS at the directory holding library/ and \
              snapshots/model/.",
             dir.display()

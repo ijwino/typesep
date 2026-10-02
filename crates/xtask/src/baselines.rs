@@ -9,7 +9,7 @@ use regex::Regex;
 /// typesets its entries to PDF and EPUB with its arguments; the harness adds --library, -o,
 /// --format, --keep-typst and -v. The manifest records every invocation, and the test in
 /// crates/typesep/tests/render.rs replays what the manifest says.
-const RUNS: [Run; 4] = [
+const RUNS: [Run; 6] = [
     // Every corpus entry, the default style, every section: what the model snapshots hold.
     Run {
         name: "default",
@@ -71,6 +71,20 @@ const RUNS: [Run; 4] = [
             "fonts.fallback=TeX Gyre Heros,Noto Serif",
         ],
     },
+    // Every Wittgenstein Project text of the corpus, in the preset its source asks for: the
+    // remarks, the headings for the outline only, Sperrsatz, formulas, columns, boxed inserts,
+    // verse, its own notes, and the rights its colophon states.
+    Run {
+        name: "lwp",
+        entries: Entries::Texts,
+        args: &["--source", "lwp"],
+    },
+    // The same in the e-reader preset, which names its own and so overrides the source's.
+    Run {
+        name: "lwp-ereader",
+        entries: Entries::Texts,
+        args: &["--source", "lwp", "--preset", "ereader"],
+    },
 ];
 
 struct Run {
@@ -82,6 +96,9 @@ struct Run {
 enum Entries {
     /// Every entry with a model snapshot, one by one.
     Corpus,
+    /// Every Wittgenstein Project text with a model snapshot, one by one; none when the
+    /// corpus has none.
+    Texts,
     /// These entries, one by one.
     Each(&'static [&'static str]),
     /// These entries, in one invocation (the run's arguments carry the --merge).
@@ -223,16 +240,27 @@ pub fn run(args: BaselineArgs) -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-fn invocations(models: &Path) -> Vec<Invocation> {
-    let mut corpus: Vec<String> = fs::read_dir(models)
-        .unwrap_or_else(|err| super::fail(&format!("{}: {err}", models.display())))
+/// The names of the model snapshots in `dir`, sorted; none when there is no such directory.
+fn snapshot_names(dir: &Path) -> Vec<String> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(err) => super::fail(&format!("{}: {err}", dir.display())),
+    };
+    let mut names: Vec<String> = entries
         .filter_map(|entry| entry.ok())
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
             name.strip_suffix(".json").map(str::to_owned)
         })
         .collect();
-    corpus.sort();
+    names.sort();
+    names
+}
+
+fn invocations(models: &Path) -> Vec<Invocation> {
+    let corpus = snapshot_names(models);
+    let texts = snapshot_names(&models.join("lwp"));
     if corpus.is_empty() {
         super::fail(&format!("no model snapshots in {}", models.display()));
     }
@@ -248,6 +276,15 @@ fn invocations(models: &Path) -> Vec<Invocation> {
     for run in &RUNS {
         let one_by_one: Vec<&str> = match run.entries {
             Entries::Corpus => corpus.iter().map(String::as_str).collect(),
+            Entries::Texts => {
+                for text in &texts {
+                    out.push(Invocation {
+                        run: run.name,
+                        args: with(&[text], run.args),
+                    });
+                }
+                continue;
+            }
             Entries::Each(entries) => entries.to_vec(),
             Entries::Merged(entries) => {
                 out.push(Invocation {
