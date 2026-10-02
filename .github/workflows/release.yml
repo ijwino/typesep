@@ -47,6 +47,9 @@ jobs:
           cargo run -q -p xtask -- licenses --out dist/THIRD-PARTY-LICENSES.txt
           cp LICENSE dist/
           cp crates/typesep-typst/fonts/GUST-FONT-LICENSE.txt dist/
+          cp crates/typesep-typst/fonts/OFL-arabic.txt dist/
+          cp crates/typesep-typst/fonts/OFL-devanagari.txt dist/
+          cp crates/typesep-typst/fonts/OFL-hebrew.txt dist/
           ls -l dist
 
       - uses: actions/upload-artifact@v7

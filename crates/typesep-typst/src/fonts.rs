@@ -10,7 +10,7 @@ use unicode_script::{Script, UnicodeScript};
 
 use typesep_style::View;
 
-pub const EMBEDDED: [(&str, &[u8]); 13] = [
+pub const EMBEDDED: [(&str, &[u8]); 19] = [
     (
         "texgyretermes-regular.otf",
         include_bytes!("../fonts/texgyretermes-regular.otf"),
@@ -62,6 +62,30 @@ pub const EMBEDDED: [(&str, &[u8]); 13] = [
     (
         "texgyrecursor-bolditalic.otf",
         include_bytes!("../fonts/texgyrecursor-bolditalic.otf"),
+    ),
+    (
+        "NotoNaskhArabic-Regular.ttf",
+        include_bytes!("../fonts/NotoNaskhArabic-Regular.ttf"),
+    ),
+    (
+        "NotoNaskhArabic-Bold.ttf",
+        include_bytes!("../fonts/NotoNaskhArabic-Bold.ttf"),
+    ),
+    (
+        "NotoSerifDevanagari-Regular.ttf",
+        include_bytes!("../fonts/NotoSerifDevanagari-Regular.ttf"),
+    ),
+    (
+        "NotoSerifDevanagari-Bold.ttf",
+        include_bytes!("../fonts/NotoSerifDevanagari-Bold.ttf"),
+    ),
+    (
+        "NotoSerifHebrew-Regular.ttf",
+        include_bytes!("../fonts/NotoSerifHebrew-Regular.ttf"),
+    ),
+    (
+        "NotoSerifHebrew-Bold.ttf",
+        include_bytes!("../fonts/NotoSerifHebrew-Bold.ttf"),
     ),
 ];
 
@@ -417,6 +441,9 @@ mod tests {
         assert_eq!(
             families,
             [
+                "Noto Naskh Arabic",
+                "Noto Serif Devanagari",
+                "Noto Serif Hebrew",
                 "TeX Gyre Cursor",
                 "TeX Gyre Heros",
                 "TeX Gyre Termes",
@@ -427,9 +454,19 @@ mod tests {
         assert!(!fonts.has_family("Noto Serif"));
         assert_eq!(
             EMBEDDED.len(),
-            13,
-            "four faces each of Termes, Heros and Cursor, and Termes Math"
+            19,
+            "four faces each of Termes, Heros and Cursor, Termes Math, and a regular and a bold \
+             face for Arabic, Devanagari and Hebrew"
         );
+        for (family, text) in [
+            ("Noto Naskh Arabic", "محاضرة في علم الأخلاق"),
+            ("Noto Serif Devanagari", "लॉजिको-फ़िलोसॉफ़िकस"),
+            ("Noto Serif Hebrew", "אבנר מבורגוס"),
+        ] {
+            for c in text.chars().filter(|c| !takes_no_glyph(*c)) {
+                assert!(fonts.family_covers(family, c), "{family} has {c}");
+            }
+        }
         assert!(fonts.font(0).is_some(), "the first embedded face loads");
     }
 

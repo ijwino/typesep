@@ -519,7 +519,7 @@ fn render(crates: &[Crate], targets: &[&str]) -> Result<String, String> {
         "The typesep executable is statically linked, so the code of the crates listed".to_owned(),
     );
     out.push(
-        "below is compiled into it and their licenses come with it. Two notices are published"
+        "below is compiled into it and their licenses come with it. Five notices are published"
             .to_owned(),
     );
     out.push("beside this one and are not repeated here:".to_owned());
@@ -528,6 +528,13 @@ fn render(crates: &[Crate], targets: &[&str]) -> Result<String, String> {
     out.push(
         "  GUST-FONT-LICENSE.txt  the thirteen TeX Gyre faces compiled into the binary.".to_owned(),
     );
+    for (file, family) in [
+        ("OFL-arabic.txt", "Noto Naskh Arabic"),
+        ("OFL-devanagari.txt", "Noto Serif Devanagari"),
+        ("OFL-hebrew.txt", "Noto Serif Hebrew"),
+    ] {
+        out.push(format!("  {file:<21}  {family}, two faces (SIL OFL 1.1)."));
+    }
     out.push(String::new());
     if targets.len() == 1 {
         out.push(format!(
