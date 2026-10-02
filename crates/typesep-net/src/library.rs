@@ -27,6 +27,10 @@ pub enum PlaceError {
     UnsafeSegment { url: String, segment: String },
     #[error("{0}: {META} is the library's own file")]
     MetaName(String),
+    /// An address on the site that is not of what the library keeps of it: `kept` says what
+    /// that is.
+    #[error("{url} is not among what the library keeps of its site: {kept}")]
+    Unkept { url: String, kept: &'static str },
 }
 
 #[derive(Debug, thiserror::Error)]

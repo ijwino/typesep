@@ -22,6 +22,9 @@ pub enum LoadError {
     Remembered { url: String, when: String },
     #[error("server answered 304 for {url} but the library has no copy")]
     NotModifiedWithoutCopy { url: String },
+    /// What the server answered, or the library holds, is not what the source can read.
+    #[error("{url}: {reason}")]
+    Unusable { url: String, reason: String },
 }
 
 pub struct LoadedPage {
