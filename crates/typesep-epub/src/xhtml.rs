@@ -697,7 +697,8 @@ fn block_html(node: &Block, ctx: &mut Ctx) -> String {
 }
 
 /// Blocks in a language of their own, in a division that names it, and their direction when
-/// they say. A tag that is not a language tag is said, and left out.
+/// they say. A tag that is not a language tag is said, and left out; no tag is left out
+/// without a word.
 fn lang_html(lang: &str, dir: Option<Dir>, children: &[Block], ctx: &mut Ctx) -> String {
     let body = blocks_html(children, ctx).join("");
     if body.is_empty() {
@@ -706,6 +707,7 @@ fn lang_html(lang: &str, dir: Option<Dir>, children: &[Block], ctx: &mut Ctx) ->
     let mut attrs = String::new();
     match typesep_typst::lang::bcp47(lang) {
         Some(tag) => attrs.push_str(&format!(" lang=\"{tag}\" xml:lang=\"{tag}\"")),
+        None if lang.trim().is_empty() => {}
         None => {
             let warning = format!(
                 "a part of the text names the language \"{}\", which is no language tag; it is left in the language around it",

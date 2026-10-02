@@ -254,6 +254,11 @@ fn a_language_scope_sets_its_blocks_in_its_language_and_direction() {
                 dir: None,
                 children: vec![],
             },
+            Block::Lang {
+                lang: " ".into(),
+                dir: Some(Dir::Ltr),
+                children: vec![para(vec![text("Untagged.")])],
+            },
         ],
         ..Doc::default()
     };
@@ -269,6 +274,10 @@ fn a_language_scope_sets_its_blocks_in_its_language_and_direction() {
     assert!(
         !source.contains("\"hi\""),
         "an empty scope is no scope: {source}"
+    );
+    assert!(
+        source.contains("#[\n#set text(dir: ltr)\n\nUntagged.\n]"),
+        "a scope without a tag keeps its direction: {source}"
     );
     assert!(
         source.contains("#set text(lang: \"en\", hyphenate: true)"),

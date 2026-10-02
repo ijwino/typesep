@@ -604,7 +604,8 @@ fn block(node: &Block, ctx: &mut Ctx<'_>) -> Option<String> {
 /// Blocks in a language of their own: set in it, and in its direction when it says, with the
 /// hyphenation of the language, or none, which is said once, when Typst has no patterns for
 /// it. A tag that is not a language tag is said too, and its blocks keep the language around
-/// them; no tag reaches the source unless it is one.
+/// them, as they do without the word when there is no tag at all; no tag reaches the source
+/// unless it is one.
 fn lang_scope(
     lang: &str,
     dir: Option<Dir>,
@@ -629,6 +630,7 @@ fn lang_scope(
                 args.push("hyphenate: false".to_owned());
             }
         }
+        None if lang.trim().is_empty() => {}
         None => ctx.warn(format!(
             "a part of the text names the language {}, which is no language tag; it is set in the language around it",
             escape_string(lang)
