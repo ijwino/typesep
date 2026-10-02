@@ -9,7 +9,10 @@ typography:
   justify: true
   hyphenate: true
   parIndent: 0pt
-  parSkip: 0.5em
+  parSkip: 0.25em
+
+blocks:
+  remark: {spaceBefore: 0.6em}
 
 fonts:
   main: {family: TeX Gyre Termes, features: {Ligatures: TeX}}

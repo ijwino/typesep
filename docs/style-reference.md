@@ -143,6 +143,7 @@ Under the hood:
 | `blocks.bibliography.size` | a multiplier like 1.15, or an absolute length like 13pt, greater than 0 | `0.95` | Font size of the bibliography. |
 | `blocks.footnote.size` | a multiplier like 1.15, or an absolute length like 13pt, greater than 0 | `0.85` | Font size of footnotes and endnotes. |
 | `blocks.footnote.rule` | true or false | `true` | Draw the rule above footnotes. |
+| `blocks.remark.spaceBefore` | a length such as 0.6in, 12pt, 1.5em (units: pt, bp, mm, cm, in, pc, em, ex, sp) | `"0pt"` | Extra space above a numbered remark. |
 
 Under the hood:
 

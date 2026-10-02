@@ -602,6 +602,7 @@ fn build_knobs(sections: &SourceSections) -> Vec<Knob> {
         k("blocks.bibliography.size", positive(FactorOrLength), num(0.95), "Font size of the bibliography."),
         k("blocks.footnote.size", positive(FactorOrLength), num(0.85), "Font size of footnotes and endnotes."),
         k("blocks.footnote.rule", Boolean, Value::Bool(true), "Draw the rule above footnotes."),
+        k("blocks.remark.spaceBefore", Length, text("0pt"), "Extra space above a numbered remark."),
 
         k("pageFurniture.header.left", Template, text(""), "Header, left slot. With twoside it mirrors: left on recto, right on verso (the inner edge)."),
         k("pageFurniture.header.center", Template, text(""), "Header, center slot."),
@@ -702,7 +703,7 @@ mod tests {
 
     #[test]
     fn the_knob_table_is_complete_and_its_paths_are_unique() {
-        assert_eq!(knobs().len(), 113);
+        assert_eq!(knobs().len(), 114);
         assert!(knob("notes.maxHeight").is_some());
         assert_eq!(knob("page.size").unwrap().default, s("a5"));
         assert_eq!(knob("headings.h4.style").unwrap().default, s("italic"));

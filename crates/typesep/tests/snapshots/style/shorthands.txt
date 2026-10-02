@@ -132,6 +132,8 @@ blocks:
   footnote:
     size: 0.85
     rule: true
+  remark:
+    spaceBefore: 0pt
 pageFurniture:
   header:
     left: ""

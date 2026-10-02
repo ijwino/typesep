@@ -19,6 +19,7 @@ pub enum Construct {
     Columns,
     Verse,
     Edges,
+    Remark,
 }
 
 pub fn face_css(face: &str) -> &'static str {
@@ -183,6 +184,10 @@ pub fn construct_rules(view: &View, used: &BTreeSet<Construct>) -> Vec<String> {
                 "div.verse>p{margin-top:0;margin-bottom:0;padding-left:1em;text-indent:-1em;text-align:left;}"
                     .to_owned(),
             ]),
+            Construct::Remark => lines.push(format!(
+                "div.remark{{margin-top:{};}}",
+                view.str("blocks.remark.spaceBefore")
+            )),
             Construct::Edges => lines.extend(["top", "right", "bottom", "left"].map(|side| {
                 format!("td.edge-{side},th.edge-{side}{{border-{side}:1px solid;}}")
             })),

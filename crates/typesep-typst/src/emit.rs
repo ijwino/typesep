@@ -549,7 +549,24 @@ fn remark(number: &str, id: Option<&str>, children: &[Block], ctx: &mut Ctx<'_>)
         out.push(guard_line_start(&lead));
     }
     out.extend(render_blocks(rest, ctx));
-    (!out.is_empty()).then(|| out.join("\n\n"))
+    if out.is_empty() {
+        return None;
+    }
+    // The space that sets it apart from what comes before: the paragraph spacing and as much
+    // again as the style asks. Weak spacing takes the place of the paragraph spacing next to
+    // it, so it is the two together, and a remark at the top of a page or column has none.
+    let space = ctx.view.pt("blocks.remark.spaceBefore");
+    if space > 0.0 {
+        let skip = ctx.view.pt("typography.parSkip");
+        out.insert(
+            0,
+            format!(
+                "#v({}, weak: true)",
+                crate::preamble::gap(ctx.view, skip + space)
+            ),
+        );
+    }
+    Some(out.join("\n\n"))
 }
 
 /// Verse, a line to a block, each set in by its indent; a line that runs over hangs.

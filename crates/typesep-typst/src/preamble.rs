@@ -282,7 +282,8 @@ fn leading_em(view: &View<'_>) -> f64 {
     (view.size_pt("typography.leading") - view.body()) / view.body()
 }
 
-fn gap(view: &View<'_>, pt: f64) -> String {
+/// The space between two paragraphs, `pt` beyond what the leading sets between their lines.
+pub(crate) fn gap(view: &View<'_>, pt: f64) -> String {
     format!(
         "{}em + {}",
         typesep_style::units::fmt_pt(leading_em(view)),
@@ -1190,6 +1191,7 @@ mod tests {
                 "cover.",
                 "notes.style",
                 "links.sections",
+                "blocks.remark",
                 "advanced.hooks",
                 "advanced.preamble",
                 "pageFurniture.numbering",

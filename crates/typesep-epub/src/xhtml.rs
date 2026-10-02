@@ -527,6 +527,7 @@ fn para_html(
 /// A remark: its number in bold, then a space, at the start of its first paragraph, inside
 /// a division that carries its id.
 fn remark_html(number: &str, id: Option<&str>, children: &[Block], ctx: &mut Ctx) -> String {
+    ctx.constructs.insert(Construct::Remark);
     let id_attr = match id.filter(|id| !id.is_empty()) {
         Some(id) => {
             let id = ctx.id_ref(id);

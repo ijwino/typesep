@@ -793,6 +793,7 @@ fn the_stylesheet_has_rules_only_for_the_constructs_a_document_uses() {
         "span.overline{",
         ".dashed{text-decoration-style:dashed;}",
         "div.aside{",
+        "div.remark{margin-top:0pt;}",
         "div.columns{display:flex;",
         "div.verse>p{",
         "td.edge-top,th.edge-top{border-top:1px solid;}",
