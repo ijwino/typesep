@@ -6,7 +6,7 @@ use typst::utils::PicoStr;
 use typst_layout::PagedDocument;
 use typst_pdf::{PdfOptions, Timestamp};
 
-use crate::world::SepWorld;
+use crate::world::TypesetWorld;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileError {
@@ -79,7 +79,7 @@ fn moved_notes(document: &PagedDocument) -> Vec<MovedNote> {
         .collect()
 }
 
-fn format_diagnostic(world: &SepWorld, diag: &SourceDiagnostic) -> String {
+fn format_diagnostic(world: &TypesetWorld, diag: &SourceDiagnostic) -> String {
     let mut text = diag.message.to_string();
     if let Some(range) = world.range(diag.span) {
         let source = world.main_source();
@@ -95,11 +95,11 @@ fn format_diagnostic(world: &SepWorld, diag: &SourceDiagnostic) -> String {
     text
 }
 
-pub fn typesets(world: &SepWorld) -> bool {
+pub fn typesets(world: &TypesetWorld) -> bool {
     typst::compile::<PagedDocument>(world).output.is_ok()
 }
 
-pub fn compile_pdf(world: &SepWorld, creator: &str) -> Result<Compiled, CompileError> {
+pub fn compile_pdf(world: &TypesetWorld, creator: &str) -> Result<Compiled, CompileError> {
     let warned = typst::compile::<PagedDocument>(world);
     let warnings: Vec<String> = warned
         .warnings

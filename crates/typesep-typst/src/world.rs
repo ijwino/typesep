@@ -41,7 +41,7 @@ pub fn file_id(path: &str) -> FileId {
     .intern()
 }
 
-pub struct SepWorld<'a> {
+pub struct TypesetWorld<'a> {
     library: LazyHash<Library>,
     fonts: &'a Fonts,
     main: FileId,
@@ -49,7 +49,7 @@ pub struct SepWorld<'a> {
     files: HashMap<FileId, PathBuf>,
 }
 
-impl<'a> SepWorld<'a> {
+impl<'a> TypesetWorld<'a> {
     pub fn new(main: String, figures: &[(String, PathBuf)], fonts: &'a Fonts) -> Self {
         let main_id = file_id(MAIN_PATH);
         let mut sources = HashMap::new();
@@ -62,7 +62,7 @@ impl<'a> SepWorld<'a> {
             .iter()
             .map(|(path, file)| (file_id(path), file.clone()))
             .collect();
-        SepWorld {
+        TypesetWorld {
             library: LazyHash::new(Library::builder().build()),
             fonts,
             main: main_id,
@@ -89,7 +89,7 @@ fn not_found(id: FileId) -> FileError {
     FileError::NotFound(PathBuf::from(id.get().vpath().get_without_slash()))
 }
 
-impl World for SepWorld<'_> {
+impl World for TypesetWorld<'_> {
     fn library(&self) -> &LazyHash<Library> {
         &self.library
     }

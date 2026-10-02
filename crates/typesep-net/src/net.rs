@@ -11,11 +11,12 @@ pub enum LoadError {
     Fetch(#[from] FetchError),
     #[error("{url} is not in the library")]
     NotHeld { url: String },
-    #[error("{url} is not in the library at {dir}\n  fetch it first: typesep fetch {slug}")]
+    /// What the library lacks, with the command that fetches it, as its source puts it.
+    #[error("{url} is not in the library at {dir}\n  fetch it first: {fetch}")]
     NotInLibrary {
         url: String,
         dir: String,
-        slug: String,
+        fetch: String,
     },
     #[error("HTTP 404 for {url} (remembered{when}; --refresh asks the server again)")]
     Remembered { url: String, when: String },

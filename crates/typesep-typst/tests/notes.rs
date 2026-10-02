@@ -4,7 +4,7 @@ use typesep_model::{
     Attachment, AttachmentKind, Block, Doc, Inline, Meta, NoteRef, NoteTable, Origin,
 };
 use typesep_style::{ResolveOptions, Style, resolve_style};
-use typesep_typst::{Compiled, EmitOptions, Fonts, SepWorld, compile_pdf, emit_document};
+use typesep_typst::{Compiled, EmitOptions, Fonts, TypesetWorld, compile_pdf, emit_document};
 
 fn style(sets: &[&str]) -> Style {
     resolve_style(ResolveOptions {
@@ -98,7 +98,7 @@ fn render(docs: &[&Doc], style: &Style) -> (String, Compiled) {
             ..Default::default()
         },
     );
-    let world = SepWorld::new(rendered.source.clone(), &rendered.figures, &fonts);
+    let world = TypesetWorld::new(rendered.source.clone(), &rendered.figures, &fonts);
     let compiled = compile_pdf(&world, "typesep tests").expect("the document compiles");
     (rendered.source, compiled)
 }
@@ -251,7 +251,7 @@ fn typeset(doc: &Doc, style: &Style, sections: &[&str]) -> (String, String) {
             ..Default::default()
         },
     );
-    let world = SepWorld::new(rendered.source.clone(), &rendered.figures, &fonts);
+    let world = TypesetWorld::new(rendered.source.clone(), &rendered.figures, &fonts);
     let document = typst::compile::<typst_layout::PagedDocument>(&world)
         .output
         .unwrap_or_else(|errors| panic!("{errors:?}\n{}", rendered.source));

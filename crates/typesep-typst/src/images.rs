@@ -95,7 +95,7 @@ pub fn collect(
         }
         if !placed && let Some(why) = failure {
             warn(format!(
-                "figure {url} {why} and the library holds no usable converted copy; leaving it out"
+                "figure {url} {why} and there is no usable converted copy; leaving it out"
             ));
         }
     }
@@ -200,7 +200,7 @@ mod tests {
         assert_eq!(
             warnings,
             [
-                "figure u/lost does not decode as svg (the SVG does not parse) and the library holds no usable converted copy; leaving it out"
+                "figure u/lost does not decode as svg (the SVG does not parse) and there is no usable converted copy; leaving it out"
             ],
             "a figure with no file at all is left out without a word"
         );

@@ -7,7 +7,7 @@ const MAX_BACKOFF_MS: u64 = 60_000;
 const WORTH_SAYING_MS: u64 = 2_000;
 
 pub fn user_agent(version: &str, homepage: &str) -> String {
-    let mut ua = format!("typesep/{version} (personal PDF generation from public SEP pages");
+    let mut ua = format!("typesep/{version} (personal PDF and EPUB typesetting of public texts");
     if !homepage.is_empty() {
         ua.push_str(&format!("; +{homepage}"));
     }
@@ -355,7 +355,7 @@ mod tests {
             .expect("a User-Agent")
             .to_owned();
         assert!(ua.starts_with("typesep/"), "{ua}");
-        assert!(ua.contains("personal PDF generation from public SEP pages"));
+        assert!(ua.contains("personal PDF and EPUB typesetting of public texts"));
         assert!(ua.contains("+https://github.com/"));
     }
 
@@ -502,11 +502,11 @@ mod tests {
     fn the_user_agent_names_the_tool_and_where_to_complain() {
         assert_eq!(
             user_agent("0.1.0", "https://example.com/x"),
-            "typesep/0.1.0 (personal PDF generation from public SEP pages; +https://example.com/x)"
+            "typesep/0.1.0 (personal PDF and EPUB typesetting of public texts; +https://example.com/x)"
         );
         assert_eq!(
             user_agent("0.1.0", ""),
-            "typesep/0.1.0 (personal PDF generation from public SEP pages)"
+            "typesep/0.1.0 (personal PDF and EPUB typesetting of public texts)"
         );
     }
 }

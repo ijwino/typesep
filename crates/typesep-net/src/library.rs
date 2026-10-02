@@ -47,8 +47,10 @@ pub enum LibraryError {
     },
     #[error("{path} is where the library keeps a source's files, but it is not a directory")]
     NotADirectory { path: PathBuf },
-    #[error("{url} is not an entry page")]
-    NotAnEntryPage { url: String },
+    /// A work's record asked for at a URL that is not the page of a work: `page` says what
+    /// the source's works are, as "an entry page".
+    #[error("{url} is not {page}")]
+    NotAWorkPage { url: String, page: &'static str },
     #[error("{path}: {source}")]
     Io {
         path: PathBuf,

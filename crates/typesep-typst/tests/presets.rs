@@ -1,6 +1,6 @@
 use typesep_model::{Block, Doc, Inline, List, ListNumbering, Meta, Origin};
 use typesep_style::{ResolveOptions, list_presets, resolve_style};
-use typesep_typst::{EmitOptions, Fonts, SepWorld, compile_pdf, emit_document};
+use typesep_typst::{EmitOptions, Fonts, TypesetWorld, compile_pdf, emit_document};
 
 fn text(value: &str) -> Inline {
     Inline::Text {
@@ -74,7 +74,7 @@ fn every_bundled_preset_typesets() {
                 ..Default::default()
             },
         );
-        let world = SepWorld::new(rendered.source.clone(), &rendered.figures, &fonts);
+        let world = TypesetWorld::new(rendered.source.clone(), &rendered.figures, &fonts);
         if let Err(err) = compile_pdf(&world, "typesep tests") {
             panic!("{preset} does not compile: {err}");
         }

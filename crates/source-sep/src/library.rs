@@ -77,8 +77,9 @@ pub fn record_entry(
 ) -> Result<(), LibraryError> {
     let place = place_for(entry_url)?;
     if place.file != INDEX || !is_entry_unit(&place.unit) {
-        return Err(LibraryError::NotAnEntryPage {
+        return Err(LibraryError::NotAWorkPage {
             url: entry_url.to_owned(),
+            page: "an entry page",
         });
     }
     store.record_work(entry_url, title, revision)
@@ -391,7 +392,7 @@ mod tests {
         assert_eq!(entries[0].edition, "live");
 
         let err = record_entry(&library, &format!("{TM}notes.html"), "x", "y").unwrap_err();
-        assert!(matches!(err, LibraryError::NotAnEntryPage { .. }));
+        assert!(matches!(err, LibraryError::NotAWorkPage { .. }));
     }
 
     #[test]

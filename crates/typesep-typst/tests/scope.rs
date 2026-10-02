@@ -1,5 +1,5 @@
 use typesep_typst::fonts::Fonts;
-use typesep_typst::world::{MITEX_FILES, SepWorld};
+use typesep_typst::world::{MITEX_FILES, TypesetWorld};
 
 fn names() -> Vec<String> {
     let text = MITEX_FILES
@@ -32,7 +32,7 @@ fn every_alias_in_the_mitex_scope_resolves() {
              #show math.equation: set text(font: \"TeX Gyre Termes Math\")\n\
              #eval(\"${name}$\", scope: mitex-scope)\n"
         );
-        let world = SepWorld::new(source, &[], &fonts);
+        let world = TypesetWorld::new(source, &[], &fonts);
         match typesep_typst::compile_pdf(&world, "test") {
             Err(err) => unknown.push(format!(
                 "{name}: {}",

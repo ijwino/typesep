@@ -18,7 +18,7 @@ pub use fonts::{
     FontProblem, Fonts, describe_missing_fonts, font_dirs, font_problems, load_font_files,
 };
 pub use recover::{Outcome, compile_document};
-pub use world::SepWorld;
+pub use world::TypesetWorld;
 
 pub const TYPST_VERSION: &str = "0.15.1";
 

@@ -3,7 +3,7 @@ use typesep_model::{
     TableCell, VerseLine,
 };
 use typesep_style::{ResolveOptions, resolve_style};
-use typesep_typst::{EmitOptions, Fonts, SepWorld, emit_document};
+use typesep_typst::{EmitOptions, Fonts, TypesetWorld, emit_document};
 use typst::foundations::{Element, Selector, Value};
 use typst::introspection::Introspector;
 use typst::layout::{Frame, FrameItem};
@@ -162,7 +162,7 @@ fn compile(doc: &Doc, sets: &[&str]) -> (String, Result<PagedDocument, String>) 
     let source = rendered
         .source
         .replacen(START, &format!("{START}\n\n{STRUCTURE}\n\n"), 1);
-    let world = SepWorld::new(source.clone(), &rendered.figures, &fonts);
+    let world = TypesetWorld::new(source.clone(), &rendered.figures, &fonts);
     let document = typst::compile::<PagedDocument>(&world)
         .output
         .map_err(|errors| {

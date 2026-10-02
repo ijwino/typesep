@@ -108,7 +108,7 @@ pub fn load_entry(
             LoadError::NotHeld { url } => LoadError::NotInLibrary {
                 url,
                 dir: net.store.library_dir().display().to_string(),
-                slug: target.slug.clone(),
+                fetch: format!("typesep fetch {}", target.slug),
             },
             other => other,
         })?;

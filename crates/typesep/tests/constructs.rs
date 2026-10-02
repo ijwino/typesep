@@ -8,7 +8,7 @@ use typesep_model::{
 };
 use typesep_style::{ResolveOptions, Style, resolve_style};
 use typesep_typst::images::Image;
-use typesep_typst::{EmitOptions, Fonts, SepWorld, compile_pdf, emit_document};
+use typesep_typst::{EmitOptions, Fonts, TypesetWorld, compile_pdf, emit_document};
 
 /// A document made up for these tests that uses every construct the model has for sources
 /// other than the SEP at least once, typeset to PDF (as is, on mirrored pages, and in two
@@ -443,7 +443,7 @@ fn pdf(doc: &Doc, style: &Style, images: &BTreeMap<String, Image>, name: &str) -
         },
     );
     assert!(rendered.warnings.is_empty(), "{:?}", rendered.warnings);
-    let world = SepWorld::new(rendered.source.clone(), &rendered.figures, &fonts);
+    let world = TypesetWorld::new(rendered.source.clone(), &rendered.figures, &fonts);
     let compiled = compile_pdf(&world, "typesep tests")
         .unwrap_or_else(|error| panic!("{name} does not compile: {error}"));
     assert!(compiled.warnings.is_empty(), "{:?}", compiled.warnings);

@@ -6,7 +6,7 @@ use typesep_style::Style;
 use crate::compile::{CompileError, Compiled, compile_pdf, typesets};
 use crate::emit::{EmitOptions, Rendered, emit_document};
 use crate::fonts::Fonts;
-use crate::world::SepWorld;
+use crate::world::TypesetWorld;
 
 pub const COMPILE_BUDGET: usize = 48;
 
@@ -112,7 +112,7 @@ fn compile_and_recover(
 ) -> Outcome {
     let build = |rendered: &Rendered| {
         compile_pdf(
-            &SepWorld::new(rendered.source.clone(), &rendered.figures, fonts),
+            &TypesetWorld::new(rendered.source.clone(), &rendered.figures, fonts),
             creator,
         )
     };
@@ -133,7 +133,7 @@ fn compile_and_recover(
     }
 
     progress("Typst refused the document; looking for the formulas at fault".to_owned());
-    let laid_out = typesets(&SepWorld::new(
+    let laid_out = typesets(&TypesetWorld::new(
         rendered.source.clone(),
         &rendered.figures,
         fonts,
@@ -150,7 +150,7 @@ fn compile_and_recover(
         if laid_out {
             build(&attempt).is_ok()
         } else {
-            typesets(&SepWorld::new(attempt.source, &attempt.figures, fonts))
+            typesets(&TypesetWorld::new(attempt.source, &attempt.figures, fonts))
         }
     };
     let narrowed = narrow(rendered.formulas.len(), &mut compiles);

@@ -4,7 +4,7 @@ use typst_html::{HtmlDocument, HtmlElement, HtmlNode};
 use crate::escape::escape_string;
 use crate::fonts::Fonts;
 use crate::math::Converter;
-use crate::world::{MITEX_SCOPE_PATH, SepWorld};
+use crate::world::{MITEX_SCOPE_PATH, TypesetWorld};
 
 const MATHML_NS: &str = "http://www.w3.org/1998/Math/MathML";
 
@@ -92,7 +92,7 @@ fn typeset(
         source.push_str(call);
     }
 
-    let world = SepWorld::new(source, &[], fonts).for_html();
+    let world = TypesetWorld::new(source, &[], fonts).for_html();
     let warned = typst::compile::<HtmlDocument>(&world);
     let document = match warned.output {
         Ok(document) => document,
