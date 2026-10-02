@@ -15,6 +15,7 @@ typst-html.workspace = true
 typst-layout.workspace = true
 typst-kit.workspace = true
 mitex.workspace = true
+unicode-script.workspace = true
 time.workspace = true
 regex.workspace = true
 

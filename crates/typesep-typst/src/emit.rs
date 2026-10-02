@@ -321,6 +321,112 @@ fn walk_inlines(nodes: &[Inline], visit: &mut impl FnMut(&Inline)) {
     }
 }
 
+/// The characters a document may print: its text, its remark numbers and note labels, what
+/// its title page and colophon say of it, the words of the style that are printed, and the
+/// addresses of its links when they are printed as notes. The fallback families a font list
+/// names are chosen for these.
+fn printed_chars(docs: &[&Doc], volume: Option<&Meta>, view: &View<'_>) -> BTreeSet<char> {
+    let mut chars = BTreeSet::new();
+    let mut add = |text: &str| chars.extend(text.chars());
+    let addresses = matches!(view.str("links.mode").as_str(), "footnote" | "endnote");
+    let metas = docs.iter().map(|doc| &doc.meta).chain(volume);
+    for meta in metas {
+        for text in [
+            &meta.title,
+            &meta.byline,
+            &meta.dateline,
+            &meta.credit,
+            &meta.origin.publisher,
+            &meta.origin.edition_label,
+            &meta.origin.url,
+            &meta.rights.statement,
+            &meta.rights.terms,
+        ] {
+            add(text);
+        }
+        for notice in &meta.rights.notices {
+            add(&notice.text);
+            if let Some(link) = &notice.link {
+                add(&link.label);
+            }
+        }
+    }
+    add(&view.str("toc.title"));
+    for area in ["header", "footer"] {
+        for slot in ["left", "center", "right"] {
+            add(&view.str(&format!("pageFurniture.{area}.{slot}")));
+        }
+    }
+    for doc in docs {
+        fn toc(items: &[TocItem], add: &mut impl FnMut(&str)) {
+            for item in items {
+                add(&item.text);
+                toc(&item.children, add);
+            }
+        }
+        toc(&doc.toc, &mut add);
+        for attachment in &doc.attachments {
+            add(&attachment.title);
+        }
+        walk_doc_blocks(doc, &mut |block| {
+            if let Block::Remark { number, .. } = block {
+                add(number);
+            }
+        });
+        walk_doc(doc, &mut |node| match node {
+            Inline::Text { value } => add(value),
+            Inline::Math { tex, .. } => add(tex),
+            Inline::NoteRef(note) => add(&note.label),
+            Inline::Link {
+                href,
+                internal: false,
+                ..
+            } if addresses => add(href),
+            _ => {}
+        });
+    }
+    chars
+}
+
+/// Every block of `doc`, the blocks inside others too, wherever the document holds them.
+fn walk_doc_blocks(doc: &Doc, visit: &mut impl FnMut(&Block)) {
+    fn walk(blocks: &[Block], visit: &mut impl FnMut(&Block)) {
+        for block in blocks {
+            visit(block);
+            match block {
+                Block::List(list) => {
+                    for item in &list.items {
+                        walk(item, visit);
+                    }
+                }
+                Block::Blockquote { children }
+                | Block::Remark { children, .. }
+                | Block::Aside { children } => walk(children, visit),
+                Block::Columns { columns } => {
+                    for column in columns {
+                        walk(column, visit);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    walk(&doc.front, visit);
+    walk(&doc.body, visit);
+    for section in &doc.back {
+        walk(&section.blocks, visit);
+    }
+    for attachment in &doc.attachments {
+        walk(&attachment.blocks, visit);
+        for note in attachment.notes.iter().flat_map(|n| n.values()) {
+            walk(note, visit);
+        }
+    }
+    for note in doc.notes.values() {
+        walk(note, visit);
+    }
+}
+
 fn plain_text(nodes: &[Inline]) -> String {
     let mut out = String::new();
     for node in nodes {
@@ -1663,6 +1769,7 @@ pub fn emit_document(docs: &[&Doc], style: &Style, opts: EmitOptions<'_>) -> Ren
         subject: meta.origin.publisher.clone(),
         lang: meta.lang.clone(),
         helpers: std::mem::take(&mut ctx.helpers),
+        chars: printed_chars(docs, opts.volume, &view),
     };
     let (preamble, mut warnings) = build_preamble(&view, &input, opts.fonts);
     warnings.extend(ctx.warnings);

@@ -22,6 +22,9 @@ pub struct PreambleInput {
     /// The helpers the document's own constructs need, which the preamble defines after the
     /// ones every document has.
     pub helpers: BTreeSet<Helper>,
+    /// The characters the document prints, which decide the fallback families its font
+    /// lists name.
+    pub chars: BTreeSet<char>,
 }
 
 /// A helper only some documents need. Each is defined only when the document uses its
@@ -77,15 +80,36 @@ impl<'a> Ctx<'a> {
     }
 }
 
-fn font_list(ctx: &Ctx<'_>, spec: &FontSpec) -> Vec<String> {
+/// The families of `fonts.fallback` the document's font lists name: with the fonts at hand,
+/// those installed that have a character of the document the main and maths families lack,
+/// each only if no family before it has all of those it has; without them, every one. The
+/// characters no font has are said, once.
+fn fallback_families(ctx: &Ctx<'_>) -> Vec<String> {
+    let listed = ctx.view.list("fonts.fallback");
+    let Some(fonts) = ctx.fonts else {
+        return listed;
+    };
+    let installed: Vec<String> = listed
+        .into_iter()
+        .filter(|family| fonts.has_family(family))
+        .collect();
+    let main = ctx.view.font("main").family;
+    let math = ctx.view.font("math").family;
+    let found = crate::fonts::coverage(fonts, &ctx.input.chars, &[&main, &math], &installed);
+    if let Some(warning) = crate::fonts::describe_missing_characters(&found.missing) {
+        ctx.warn(warning);
+    }
+    found.needed
+}
+
+fn font_list(spec: &FontSpec, fallback: &[String]) -> Vec<String> {
     let mut families = Vec::new();
     if !spec.family.is_empty() {
         families.push(spec.family.clone());
     }
-    for family in ctx.view.list("fonts.fallback") {
-        let known = ctx.fonts.is_none_or(|f| f.has_family(&family));
-        if known && !families.iter().any(|f| f.eq_ignore_ascii_case(&family)) {
-            families.push(family);
+    for family in fallback {
+        if !families.iter().any(|f| f.eq_ignore_ascii_case(family)) {
+            families.push(family.clone());
         }
     }
     families
@@ -358,16 +382,17 @@ pub const EMITTERS: &[Emitter] = &[
             "fonts.math",
             "fonts.fallback",
         ],
-        typst: "set text(font:) with fonts.fallback appended to each family list, which is how Typst falls back for characters a font lacks; show math.equation: set text(font:) for the maths font; a fonts.<role>.scale becomes a size factor where the role is selected, Typst having no per-family scale",
+        typst: "set text(font:) with the fonts.fallback families the document needs appended to each family list (those installed that have a character of it the main and maths fonts lack), which is how Typst falls back for characters a font lacks, and a warning for characters no font has; show math.equation: set text(font:) for the maths font; a fonts.<role>.scale becomes a size factor where the role is selected, Typst having no per-family scale",
         emit: |ctx| {
             let view = ctx.view;
+            let fallback = fallback_families(ctx);
             let mut out = Vec::new();
             for role in ["main", "sans", "mono"] {
                 let spec = view.font(role);
                 out.push(format!(
                     "#let {} = {}",
                     family_var(role),
-                    font_array(&font_list(ctx, &spec))
+                    font_array(&font_list(&spec, &fallback))
                 ));
                 out.push(format!(
                     "#let {} = {}",
@@ -378,7 +403,7 @@ pub const EMITTERS: &[Emitter] = &[
             let math = view.font("math");
             out.push(format!(
                 "#let fs-math-font = {}",
-                font_array(&font_list(ctx, &math))
+                font_array(&font_list(&math, &fallback))
             ));
             let main = view.font("main");
             out.push(format!(
@@ -1079,6 +1104,73 @@ mod tests {
                 "#set document(title: \"Pleasure\", author: (\"A. Author\",), description: \"A \\\"Publisher\\\"\")"
             ),
             "the publisher is the PDF's subject: {text}"
+        );
+    }
+
+    #[test]
+    fn a_font_list_names_the_fallback_families_the_document_needs() {
+        let style = style_with(&["fonts.fallback=Noto Serif,TeX Gyre Termes Math,TeX Gyre Heros"]);
+        let view = View::new(&style);
+        let fonts = Fonts::embedded();
+        let lists = |text: &str| {
+            let input = PreambleInput {
+                chars: text.chars().collect(),
+                ..PreambleInput::default()
+            };
+            let (preamble, warnings) = build_preamble(&view, &input, Some(&fonts));
+            let lists: Vec<String> = preamble
+                .lines()
+                .filter(|line| {
+                    line.starts_with("#let fs-main =") || line.starts_with("#let fs-math-font =")
+                })
+                .map(str::to_owned)
+                .collect();
+            (lists, warnings)
+        };
+        assert_eq!(
+            lists("Plain text, € and –."),
+            (
+                vec![
+                    "#let fs-main = (\"TeX Gyre Termes\",)".to_owned(),
+                    "#let fs-math-font = (\"TeX Gyre Termes Math\",)".to_owned()
+                ],
+                vec![]
+            ),
+            "what the main font has needs no fallback, and Noto Serif is not installed"
+        );
+        let (needed, warnings) = lists("Plain text ℵ ʃ");
+        assert_eq!(
+            needed,
+            [
+                "#let fs-main = (\"TeX Gyre Termes\",)",
+                "#let fs-math-font = (\"TeX Gyre Termes Math\",)"
+            ],
+            "the maths font is one of the main fonts, which Typst falls back to of itself"
+        );
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].starts_with(
+                "1 character of the text has no font and is not printed: Latin ʃ (in Noto Serif)"
+            ),
+            "{warnings:?}"
+        );
+        let maths_first = style_with(&[
+            "fonts.math=TeX Gyre Heros",
+            "fonts.fallback=TeX Gyre Termes Math",
+        ]);
+        let input = PreambleInput {
+            chars: "ℵ".chars().collect(),
+            ..PreambleInput::default()
+        };
+        let (preamble, _) = build_preamble(&View::new(&maths_first), &input, Some(&fonts));
+        assert!(
+            preamble.contains("#let fs-main = (\"TeX Gyre Termes\", \"TeX Gyre Termes Math\")"),
+            "{preamble}"
+        );
+        let (unchecked, _) = build_preamble(&view, &input, None);
+        assert!(
+            unchecked.contains("#let fs-main = (\"TeX Gyre Termes\", \"Noto Serif\", \"TeX Gyre Termes Math\", \"TeX Gyre Heros\")"),
+            "without the fonts at hand, every family is named: {unchecked}"
         );
     }
 

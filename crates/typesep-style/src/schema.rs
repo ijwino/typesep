@@ -577,7 +577,7 @@ fn build_knobs(sections: &SourceSections) -> Vec<Knob> {
         k("fonts.math", Font, font("TeX Gyre Termes Math", None, &[]), "Math font (must be an OpenType math font)."),
         k("fonts.fallback", StringList,
             list(&["Noto Serif", "Noto Serif CJK SC", "Noto Serif Devanagari", "Noto Naskh Arabic", "Noto Serif Hebrew", "Noto Sans Symbols"]),
-            "Fonts tried, in order, for characters the main font lacks (CJK, Devanagari, ...). Names not installed are skipped; empty disables fallback."),
+            "Fonts tried, in order, for characters the main font lacks (CJK, Devanagari, ...). Names not installed are skipped, and so is a family that has none of the document's characters the main and maths fonts lack; empty disables fallback."),
     ];
     knobs.extend(heading_knobs("h1", HeadingDefaults { size: 1.9, style: "regular", space_before: "0pt", space_after: "0.8em" }));
     knobs.extend(heading_knobs("h2", HeadingDefaults { size: 1.3, style: "bold", space_before: "1.6em", space_after: "0.7em" }));

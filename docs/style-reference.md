@@ -69,11 +69,11 @@ Under the hood:
 | `fonts.sans` | a family name, or {family, scale, features, file} | `{"family":"TeX Gyre Heros","scale":0.95}` | Sans-serif font. |
 | `fonts.mono` | a family name, or {family, scale, features, file} | `{"family":"TeX Gyre Cursor","scale":0.9}` | Monospaced font. |
 | `fonts.math` | a family name, or {family, scale, features, file} | `{"family":"TeX Gyre Termes Math"}` | Math font (must be an OpenType math font). |
-| `fonts.fallback` | a list of strings | `["Noto Serif","Noto Serif CJK SC","Noto Serif Devanagari","Noto Naskh Arabic","Noto Serif Hebrew","Noto Sans Symbols"]` | Fonts tried, in order, for characters the main font lacks (CJK, Devanagari, ...). Names not installed are skipped; empty disables fallback. |
+| `fonts.fallback` | a list of strings | `["Noto Serif","Noto Serif CJK SC","Noto Serif Devanagari","Noto Naskh Arabic","Noto Serif Hebrew","Noto Sans Symbols"]` | Fonts tried, in order, for characters the main font lacks (CJK, Devanagari, ...). Names not installed are skipped, and so is a family that has none of the document's characters the main and maths fonts lack; empty disables fallback. |
 
 Under the hood:
 
-- **fonts** (set text(font:) with fonts.fallback appended to each family list, which is how Typst falls back for characters a font lacks; show math.equation: set text(font:) for the maths font; a fonts.<role>.scale becomes a size factor where the role is selected, Typst having no per-family scale): `fonts.main`, `fonts.sans`, `fonts.mono`, `fonts.math`, `fonts.fallback`.
+- **fonts** (set text(font:) with the fonts.fallback families the document needs appended to each family list (those installed that have a character of it the main and maths fonts lack), which is how Typst falls back for characters a font lacks, and a warning for characters no font has; show math.equation: set text(font:) for the maths font; a fonts.<role>.scale becomes a size factor where the role is selected, Typst having no per-family scale): `fonts.main`, `fonts.sans`, `fonts.mono`, `fonts.math`, `fonts.fallback`.
 
 ## Headings
 
