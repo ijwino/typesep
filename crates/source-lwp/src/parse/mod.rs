@@ -9,7 +9,7 @@ use serde_json::Value;
 use typesep_html::dom;
 use typesep_html::js;
 use typesep_html::walk::{Walker, plain, trim_inline};
-use typesep_model::{Block, Contributor, Doc, EntryLinks, Meta, NoteTable, Origin, TocItem};
+use typesep_model::{Block, Contributor, Dir, Doc, EntryLinks, Meta, NoteTable, Origin, TocItem};
 
 use crate::address::{normalize_title, page_url};
 use rules::{LwpRules, tidy_blocks};
@@ -176,6 +176,7 @@ pub fn parse_page(answer: &str, opts: &ParseOptions) -> Result<Doc, String> {
             dateline: String::new(),
             credit: String::new(),
             lang: root.attr("lang").unwrap_or_default().to_owned(),
+            dir: Dir::Ltr,
             origin: Origin {
                 source: SOURCE.to_owned(),
                 publisher: PUBLISHER.to_owned(),

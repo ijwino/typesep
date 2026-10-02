@@ -1,5 +1,5 @@
 use typesep_model::{
-    Align, Block, Decoration, Doc, Edges, Inline, List, ListNumbering, Meta, Rules, Table,
+    Align, Block, Decoration, Dir, Doc, Edges, Inline, List, ListNumbering, Meta, Rules, Table,
     TableCell, VerseLine,
 };
 use typesep_style::{ResolveOptions, resolve_style};
@@ -66,9 +66,9 @@ fn plain(blocks: &[Block]) -> String {
             Block::Para { children, .. } | Block::Pre { children } => {
                 plain_inlines(children, &mut out)
             }
-            Block::Blockquote { children } | Block::Aside { children } => {
-                out.push_str(&plain(children))
-            }
+            Block::Blockquote { children }
+            | Block::Aside { children }
+            | Block::Lang { children, .. } => out.push_str(&plain(children)),
             Block::Remark {
                 number, children, ..
             } => {
@@ -111,13 +111,13 @@ fn walk(frame: &Frame, out: &mut String) {
 }
 
 /// The text without its spaces, and with what typesetting (not markup) does to it undone:
-/// Typst sets straight quotes as typographic ones and leaves a soft hyphen where it broke a
-/// word at the end of a line.
+/// Typst sets straight quotes as typographic ones (German ones in German) and leaves a soft
+/// hyphen where it broke a word at the end of a line.
 fn squeeze(text: &str) -> String {
     text.chars()
         .filter(|c| !c.is_whitespace() && *c != '\u{ad}')
         .map(|c| match c {
-            '“' | '”' => '"',
+            '“' | '”' | '„' => '"',
             '‘' | '’' => '\'',
             c => c,
         })
@@ -455,6 +455,41 @@ fn every_construct(value: &str) -> Vec<Block> {
             caption: None,
             rules: Some(Rules::None),
         }),
+    ]
+}
+
+/// `value` in language scopes: one that names a language, one whose tag is `value` itself and
+/// so no tag, and a scope to each column of a row, as a bilingual edition sets its sides.
+fn language_scopes(value: &str) -> Vec<Block> {
+    vec![
+        Block::Lang {
+            lang: "de".to_owned(),
+            dir: None,
+            children: vec![para(vec![text(value)]), para(vec![text(value)])],
+        },
+        Block::Lang {
+            lang: value.to_owned(),
+            dir: Some(Dir::Ltr),
+            children: vec![Block::Remark {
+                number: value.to_owned(),
+                id: None,
+                children: vec![para(vec![text(value)])],
+            }],
+        },
+        Block::Columns {
+            columns: vec![
+                vec![Block::Lang {
+                    lang: "en-GB".to_owned(),
+                    dir: None,
+                    children: vec![para(vec![text(value)])],
+                }],
+                vec![Block::Lang {
+                    lang: value.to_owned(),
+                    dir: None,
+                    children: vec![para(vec![text(value)])],
+                }],
+            ],
+        },
     ]
 }
 
@@ -902,5 +937,59 @@ fn a_spaced_word_takes_no_space_after_its_last_letter() {
     assert!(
         (spaced_comma - plain_comma).abs() < 0.5,
         "the comma follows the last letter as it does unspaced: {spaced_comma} against {plain_comma}"
+    );
+}
+
+#[test]
+fn markup_in_language_scopes_stays_text() {
+    assert_literal(
+        std::iter::once("plain words")
+            .chain(HOSTILE.iter().copied())
+            .map(language_scopes)
+            .collect(),
+    );
+}
+
+#[test]
+fn a_language_tag_that_is_markup_never_reaches_the_source() {
+    let tags = HOSTILE.iter().copied().chain([
+        "de\")",
+        "de\", dir: rtl, x: (\"",
+        "de\n#set page(width: 1pt)",
+        "ar]",
+        "]",
+    ]);
+    for tag in tags {
+        let doc = marked(&[Block::Lang {
+            lang: tag.to_owned(),
+            dir: Some(Dir::Rtl),
+            children: vec![para(vec![text("inside")])],
+        }]);
+        let (source, document) = compile(&doc, &[]);
+        let document = document.unwrap_or_else(|error| panic!("{tag:?}: {error}"));
+        let scope = source
+            .lines()
+            .find(|line| line.starts_with("#set text(") && line.contains("dir: rtl"))
+            .unwrap_or_else(|| panic!("{tag:?}: {source}"));
+        assert_eq!(scope, "#set text(dir: rtl)", "{tag:?} is left out");
+        let out = all_text(&document);
+        let from = out.find(START).unwrap() + START.len();
+        let to = out.rfind(END).unwrap();
+        assert_eq!(squeeze(&out[from..to]), "inside", "{tag:?}");
+    }
+}
+
+#[test]
+fn a_language_tag_reaches_typst_as_its_language_and_region() {
+    let doc = marked(&[Block::Lang {
+        lang: "sr-Latn-RS".to_owned(),
+        dir: None,
+        children: vec![para(vec![text("inside")])],
+    }]);
+    let (source, document) = compile(&doc, &[]);
+    document.unwrap();
+    assert!(
+        source.contains("#[\n#set text(lang: \"sr\", region: \"RS\")\n\ninside\n]"),
+        "{source}"
     );
 }

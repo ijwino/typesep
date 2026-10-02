@@ -93,7 +93,7 @@ pub fn build_epub(
         let body = entry_html(doc, &mut ctx, options.sections);
         documents.push((
             name.clone(),
-            document_xhtml(&doc.meta.title, &doc.meta.lang, &body),
+            document_xhtml(&doc.meta.title, &doc.meta.lang, doc.meta.dir, &body),
         ));
         let properties = if ctx.has_math { "mathml" } else { "" }.to_owned();
         chapters.push(Chapter {
@@ -169,6 +169,7 @@ pub fn build_epub(
             document_xhtml(
                 "Contents",
                 &options.volume.unwrap_or(&docs[0].meta).lang,
+                options.volume.unwrap_or(&docs[0].meta).dir,
                 &format!("<nav epub:type=\"toc\" id=\"toc\"><h1>Contents</h1>{nav}</nav>"),
             )
             .as_bytes(),

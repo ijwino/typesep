@@ -48,7 +48,8 @@ fn walk_block(block: &Block, push: &mut impl FnMut(&Figure)) {
         }
         Block::Blockquote { children }
         | Block::Remark { children, .. }
-        | Block::Aside { children } => {
+        | Block::Aside { children }
+        | Block::Lang { children, .. } => {
             for block in children {
                 walk_block(block, push);
             }
@@ -124,7 +125,8 @@ pub fn links_in_block(block: &Block, found: &mut impl FnMut(&str)) {
         }
         Block::Blockquote { children }
         | Block::Remark { children, .. }
-        | Block::Aside { children } => {
+        | Block::Aside { children }
+        | Block::Lang { children, .. } => {
             for block in children {
                 links_in_block(block, found);
             }
@@ -234,7 +236,14 @@ mod tests {
             }],
         });
         doc.body.push(Block::Columns {
-            columns: vec![vec![], vec![Block::Figure(figure("column.svg"))]],
+            columns: vec![
+                vec![],
+                vec![Block::Lang {
+                    lang: "de".into(),
+                    dir: None,
+                    children: vec![Block::Figure(figure("column.svg"))],
+                }],
+            ],
         });
         doc.body.push(Block::Verse {
             lines: vec![crate::VerseLine {

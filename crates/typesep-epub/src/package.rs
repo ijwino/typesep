@@ -1,4 +1,4 @@
-use typesep_model::{Doc, Meta};
+use typesep_model::{Dir, Doc, Meta};
 use typesep_typst::text::fetch_date_span;
 
 use crate::xhtml::esc;
@@ -117,6 +117,12 @@ pub fn content_opf(
     let spine: String = (0..chapters.len())
         .map(|i| format!("<itemref idref=\"c{i}\"/>"))
         .collect();
+    // A book in a script written right to left turns its pages the other way.
+    let progression = if volume.dir == Dir::Rtl {
+        " page-progression-direction=\"rtl\""
+    } else {
+        ""
+    };
     let date = match retrieved {
         Some(date) => format!("\n<dc:date>{date}</dc:date>"),
         None => String::new(),
@@ -135,7 +141,7 @@ pub fn content_opf(
 <meta property="dcterms:modified">{}</meta>
 </metadata>
 <manifest>{}</manifest>
-<spine>{spine}</spine>
+<spine{progression}>{spine}</spine>
 </package>"#,
         esc(&identifier),
         esc(title),

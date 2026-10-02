@@ -4,6 +4,7 @@ pub mod emit;
 pub mod escape;
 pub mod fonts;
 pub mod images;
+pub mod lang;
 pub mod math;
 pub mod mathml;
 pub mod preamble;

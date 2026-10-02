@@ -129,6 +129,21 @@ pub enum Align {
     Right,
 }
 
+/// The direction a script is written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Dir {
+    #[default]
+    Ltr,
+    Rtl,
+}
+
+impl Dir {
+    pub fn is_ltr(&self) -> bool {
+        *self == Dir::Ltr
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ListNumbering {
@@ -249,6 +264,15 @@ pub enum Block {
     Verse {
         lines: Vec<VerseLine>,
     },
+    /// Blocks in a language other than the document's, as one side of a bilingual edition
+    /// is: `lang` an ISO 639 code that may carry a region (`de`, `en-GB`), and the direction
+    /// its script is written in when it is not the document's.
+    Lang {
+        lang: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dir: Option<Dir>,
+        children: Vec<Block>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -309,6 +333,9 @@ pub struct Meta {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub credit: String,
     pub lang: String,
+    /// The direction the document's script is written in, left to right unless it says.
+    #[serde(default, skip_serializing_if = "Dir::is_ltr")]
+    pub dir: Dir,
     pub origin: Origin,
     pub rights: Rights,
     pub macros: MacroTable,
@@ -539,6 +566,21 @@ mod tests {
         let read: Doc = serde_json::from_value(value).unwrap();
         assert_eq!(read, doc, "the value round-trips");
 
+        assert!(
+            serde_json::to_value(&doc.meta)
+                .unwrap()
+                .get("dir")
+                .is_none(),
+            "a document written left to right does not say so"
+        );
+        let rtl = Meta {
+            dir: Dir::Rtl,
+            ..Default::default()
+        };
+        let rtl_value = serde_json::to_value(&rtl).unwrap();
+        assert_eq!(rtl_value["dir"], json!("rtl"));
+        assert_eq!(serde_json::from_value::<Meta>(rtl_value).unwrap(), rtl);
+
         let volume = Meta {
             credit: "2 entries".into(),
             ..Default::default()
@@ -655,6 +697,16 @@ mod tests {
                     id: None,
                     inline: None,
                 }),
+                Block::Lang {
+                    lang: "ar".into(),
+                    dir: Some(Dir::Rtl),
+                    children: vec![Block::Rule],
+                },
+                Block::Lang {
+                    lang: "de".into(),
+                    dir: None,
+                    children: vec![],
+                },
             ],
             notes: BTreeMap::from([("cite_note-1".to_owned(), vec![Block::Rule])]),
             ..Default::default()
@@ -686,7 +738,9 @@ mod tests {
                     { "header": false, "colspan": 1, "rowspan": 1, "children": [], "edges": { "top": true, "right": false, "bottom": true, "left": false } }
                 ]] },
                 { "type": "table", "rules": "none", "columns": 0, "rows": [] },
-                { "type": "figure", "src": "bw.png", "alt": "", "ebookSrc": "colour.png", "widthPx": 120 }
+                { "type": "figure", "src": "bw.png", "alt": "", "ebookSrc": "colour.png", "widthPx": 120 },
+                { "type": "lang", "lang": "ar", "dir": "rtl", "children": [{ "type": "rule" }] },
+                { "type": "lang", "lang": "de", "children": [] }
             ])
         );
         assert_eq!(

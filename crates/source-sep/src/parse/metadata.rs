@@ -6,7 +6,7 @@ use super::wording::{self, LANG, SEP_NAME, SOURCE};
 use typesep_html::dom;
 use typesep_html::js::{self, WS};
 use typesep_html::{lazy_regex, lazy_selector};
-use typesep_model::{Contributor, Meta, Origin};
+use typesep_model::{Contributor, Dir, Meta, Origin};
 
 lazy_selector!(AUEDITABLE_H1 = "#aueditable > h1");
 lazy_selector!(H1 = "h1");
@@ -105,6 +105,7 @@ pub fn parse_metadata(document: &Html, src: &MetadataSource) -> Meta {
         byline,
         credit: String::new(),
         lang: LANG.to_owned(),
+        dir: Dir::Ltr,
         origin: Origin {
             source: SOURCE.to_owned(),
             publisher: SEP_NAME.to_owned(),

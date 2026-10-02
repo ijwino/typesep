@@ -5,6 +5,7 @@ use crate::colors::color_expr;
 use crate::escape::{escape_string, escape_text, guard_line_start};
 use crate::fonts::Fonts;
 use crate::style::typst_pt;
+use typesep_model::Dir;
 use typesep_style::view::{FontSpec, View};
 
 pub const HEADING_KEYS: [&str; 4] = ["h1", "h2", "h3", "h4"];
@@ -19,6 +20,8 @@ pub struct PreambleInput {
     /// The language the document names, an ISO 639 code such as "de", which
     /// `typography.language: auto` follows.
     pub lang: String,
+    /// The direction the document's script is written in.
+    pub dir: Dir,
     /// The helpers the document's own constructs need, which the preamble defines after the
     /// ones every document has.
     pub helpers: BTreeSet<Helper>,
@@ -197,7 +200,7 @@ fn scale_var(role: &str) -> &'static str {
 
 /// The Babel names typesep knows, by the ISO 639 code Typst takes for them.
 #[rustfmt::skip]
-const LANGUAGES: [(&str, &[&str]); 40] = [
+const LANGUAGES: [(&str, &[&str]); 41] = [
     ("en", &["english", "american", "usenglish", "british", "ukenglish", "canadian", "australian", "newzealand"]),
     ("de", &["german", "ngerman", "austrian", "naustrian", "swissgerman"]),
     ("fr", &["french", "francais", "canadien"]),
@@ -226,6 +229,7 @@ const LANGUAGES: [(&str, &[&str]); 40] = [
     ("la", &["latin"]),
     ("he", &["hebrew"]),
     ("ar", &["arabic"]),
+    ("hi", &["hindi"]),
     ("ja", &["japanese"]),
     ("zh", &["chinese"]),
     ("ko", &["korean"]),
@@ -420,7 +424,7 @@ pub const EMITTERS: &[Emitter] = &[
     Emitter {
         name: "language and hyphenation",
         needs: &["typography.language", "typography.hyphenate"],
-        typst: "set text(lang:) selects the hyphenation patterns; set text(hyphenate:) turns hyphenation off",
+        typst: "set text(lang:) selects the hyphenation patterns, and set text(dir: rtl) the direction of a document written right to left; set text(hyphenate:) turns hyphenation off, as it is, with a note, for a language Typst has no patterns for",
         emit: |ctx| {
             let view = ctx.view;
             let babel = view.str("typography.language");
@@ -438,9 +442,19 @@ pub const EMITTERS: &[Emitter] = &[
                 }
                 })
             };
+            let mut hyphenate = view.bool("typography.hyphenate");
+            if hyphenate && !crate::lang::has_hyphenation(&lang) {
+                ctx.warn(format!(
+                    "Typst has no hyphenation patterns for {lang}, the document's language, so it is not hyphenated"
+                ));
+                hyphenate = false;
+            }
+            let dir = match ctx.input.dir {
+                Dir::Rtl => ", dir: rtl",
+                Dir::Ltr => "",
+            };
             vec![format!(
-                "#set text(lang: \"{lang}\", hyphenate: {})",
-                view.bool("typography.hyphenate")
+                "#set text(lang: \"{lang}\"{dir}, hyphenate: {hyphenate})"
             )]
         },
     },
@@ -824,10 +838,21 @@ pub const EMITTERS: &[Emitter] = &[
                 }
                 let rule = view.bool(&format!("pageFurniture.rules.{area}"));
                 let grid = "grid(columns: (1fr, auto, 1fr), align: (left + horizon, center + horizon, right + horizon), column-gutter: 0.5em, ..slots)";
-                let mirror = if twoside {
-                    "\n    let slots = if calc.even(here().page()) { (right-slot, center-slot, left-slot) } else { (left-slot, center-slot, right-slot) }"
-                } else {
-                    "\n    let slots = (left-slot, center-slot, right-slot)"
+                // A document written right to left lays a grid out from the right, and its
+                // mirrored pages are bound on the right, so its odd pages are the left-hand
+                // ones: its slots are set left to right, and mirrored on the even pages.
+                let rtl = ctx.input.dir == Dir::Rtl;
+                let mirror = match (twoside, rtl) {
+                    (true, false) => {
+                        "\n    let slots = if calc.even(here().page()) { (right-slot, center-slot, left-slot) } else { (left-slot, center-slot, right-slot) }"
+                    }
+                    (true, true) => {
+                        "\n    set text(dir: ltr)\n    let slots = if calc.odd(here().page()) { (right-slot, center-slot, left-slot) } else { (left-slot, center-slot, right-slot) }"
+                    }
+                    (false, false) => "\n    let slots = (left-slot, center-slot, right-slot)",
+                    (false, true) => {
+                        "\n    set text(dir: ltr)\n    let slots = (left-slot, center-slot, right-slot)"
+                    }
                 };
                 let decoration = match (area, rule) {
                     ("header", true) => format!(
@@ -881,8 +906,10 @@ pub const EMITTERS: &[Emitter] = &[
 /// The definition of `helper`. The margin note reads the page geometry from the style, so
 /// it knows which margin is on the left of the page it lands on, and which column it is in.
 /// It is set level with its line in the margin beside its column when there are columns,
-/// else in the outer margin of mirrored pages (as LaTeX's `\marginpar` is), else in the
-/// left one; and in the line instead when it is wider than that margin. `space` is the space
+/// else in the outer margin of mirrored pages (as LaTeX's `\marginpar` is), else in the one
+/// on the side lines start from, the left one, or the right one in text written right to
+/// left, whose mirrored pages are bound on the right; and in the line instead when it is
+/// wider than that margin. `space` is the space
 /// that followed it in the text, which it gives back only there. Where the note is placed is
 /// read inside its box: a line may break between the box and what comes before it.
 fn helper_definition(view: &View<'_>, helper: Helper) -> String {
@@ -900,12 +927,12 @@ fn helper_definition(view: &View<'_>, helper: Helper) -> String {
             let beside_right = if view.int("page.columns") > 1 {
                 format!("at.x > {} / 2", typst_pt(width))
             } else if twoside {
-                "calc.odd(at.page)".to_owned()
+                "calc.odd(at.page) != rtl".to_owned()
             } else {
-                "false".to_owned()
+                "rtl".to_owned()
             };
             format!(
-                "#let fs-margin-note(body, space: false) = context {{\n  set text(size: fs-note-size)\n  let margins(at) = if {twoside} and calc.even(at.page) {{ ({outer}, {inner}) }} else {{ ({inner}, {outer}) }}\n  let beside-right(at) = {beside_right}\n  let gap = 0.6em.to-absolute()\n  let at = here().position()\n  let (left-margin, right-margin) = margins(at)\n  let room = (if beside-right(at) {{ right-margin }} else {{ left-margin }}) - 2 * gap\n  if measure(body).width > room {{ if space {{ body + [ ] }} else {{ body }} }} else {{\n    box(width: 0pt, context {{\n      let at = here().position()\n      let (left-margin, right-margin) = margins(at)\n      if beside-right(at) {{\n        place(top + left, dx: {width} - right-margin + gap - at.x, dy: -1em, body)\n      }} else {{\n        place(top + right, dx: left-margin - gap - at.x, dy: -1em, body)\n      }}\n    }})\n  }}\n}}",
+                "#let fs-margin-note(body, space: false) = context {{\n  set text(size: fs-note-size)\n  let rtl = text.dir == rtl\n  let margins(at) = if {twoside} and (calc.even(at.page) != rtl) {{ ({outer}, {inner}) }} else {{ ({inner}, {outer}) }}\n  let beside-right(at) = {beside_right}\n  let gap = 0.6em.to-absolute()\n  let at = here().position()\n  let (left-margin, right-margin) = margins(at)\n  let room = (if beside-right(at) {{ right-margin }} else {{ left-margin }}) - 2 * gap\n  if measure(body).width > room {{ if space {{ body + [ ] }} else {{ body }} }} else {{\n    box(width: 0pt, context {{\n      let at = here().position()\n      let (left-margin, right-margin) = margins(at)\n      if beside-right(at) {{\n        place(top + left, dx: {width} - right-margin + gap - at.x, dy: -1em, body)\n      }} else {{\n        place(top + right, dx: left-margin - gap - at.x, dy: -1em, body)\n      }}\n    }})\n  }}\n}}",
                 width = typst_pt(width),
                 inner = typst_pt(inner),
                 outer = typst_pt(outer),
@@ -1341,6 +1368,7 @@ mod tests {
             ("fr", "fr"),
             ("it", "it"),
             ("es", "es"),
+            ("hi", "hi"),
         ] {
             assert_eq!(lang_line(&[], lang), (set(code), vec![]), "{lang}");
         }
@@ -1351,14 +1379,44 @@ mod tests {
             "a document that names no language is set in English without a word"
         );
         assert_eq!(
-            lang_line(&[], "hi"),
+            lang_line(&[], "tlh"),
             (
                 set("en"),
                 vec![
-                    "the document's language \"hi\" is not one typography.language auto knows; using english"
+                    "the document's language \"tlh\" is not one typography.language auto knows; using english"
                         .to_owned()
                 ]
             )
+        );
+        assert_eq!(
+            lang_line(&[], "ar"),
+            (
+                "#set text(lang: \"ar\", hyphenate: false)".to_owned(),
+                vec![
+                    "Typst has no hyphenation patterns for ar, the document's language, so it is not hyphenated"
+                        .to_owned()
+                ]
+            ),
+            "a language without patterns is not hyphenated, which is said"
+        );
+        assert_eq!(
+            lang_line(&["typography.hyphenate=false"], "ar"),
+            (
+                "#set text(lang: \"ar\", hyphenate: false)".to_owned(),
+                vec![]
+            ),
+            "and needs no word when hyphenation is off anyway"
+        );
+        let style = style_with(&[]);
+        let input = PreambleInput {
+            lang: "ar".to_owned(),
+            dir: Dir::Rtl,
+            ..PreambleInput::default()
+        };
+        let (text, _) = build_preamble(&View::new(&style), &input, None);
+        assert!(
+            text.contains("#set text(lang: \"ar\", dir: rtl, hyphenate: false)\n"),
+            "a document written right to left says so: {text}"
         );
         assert_eq!(
             lang_line(&["typography.language=french"], "de"),

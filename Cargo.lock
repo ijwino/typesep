@@ -3295,6 +3295,7 @@ dependencies = [
 name = "typesep-typst"
 version = "0.1.0"
 dependencies = [
+ "hypher",
  "mitex",
  "regex",
  "tempfile",

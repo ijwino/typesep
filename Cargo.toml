@@ -47,6 +47,7 @@ typst-html = "0.15.1"
 typst-layout = "0.15.1"
 typst-kit = { version = "0.15.1", default-features = false, features = ["scan-fonts"] }
 mitex = "0.2.4"
+hypher = "0.1.7"
 unicode-script = "0.5.8"
 time = "0.3"
 ureq = { version = "3", features = ["gzip"] }

@@ -6,8 +6,8 @@ use typesep_epub::nav::nav_items;
 use typesep_epub::xhtml::{Ctx, MathPass, entry_html, esc, xml_id};
 use typesep_epub::{EpubError, EpubOptions, build_epub};
 use typesep_model::{
-    Align, Attachment, AttachmentKind, Block, Decoration, Doc, Edges, Figure, Inline, List, Meta,
-    NoteRef, NoteTable, Origin, Rules, Table, TableCell, TocItem, VerseLine,
+    Align, Attachment, AttachmentKind, Block, Decoration, Dir, Doc, Edges, Figure, Inline, List,
+    Meta, NoteRef, NoteTable, Origin, Rules, Table, TableCell, TocItem, VerseLine,
 };
 use typesep_style::View;
 use typesep_style::{ResolveOptions, Style, resolve_style};
@@ -921,4 +921,79 @@ fn the_notes_the_document_holds_are_in_the_nav_when_they_are_an_appendix() {
         !nav.contains("notes-appendix"),
         "without the notes, no entry for them: {nav}"
     );
+}
+
+#[test]
+fn a_document_written_right_to_left_says_so_and_turns_its_pages_that_way() {
+    let mut entry = doc(vec![para("نص")]);
+    entry.meta.lang = "ar".into();
+    entry.meta.dir = Dir::Rtl;
+    let members = epub_text(&entry, &[], &BTreeMap::new());
+    for name in ["OEBPS/entry-1.xhtml", "OEBPS/nav.xhtml"] {
+        assert!(
+            members[name].contains(r#" lang="ar" xml:lang="ar" dir="rtl">"#),
+            "{name}: {}",
+            members[name]
+        );
+    }
+    let opf = &members["OEBPS/content.opf"];
+    assert!(
+        opf.contains(r#"<spine page-progression-direction="rtl"><itemref idref="c0"/></spine>"#),
+        "{opf}"
+    );
+
+    let left = epub_text(&doc(vec![para("Text.")]), &[], &BTreeMap::new());
+    assert!(!left["OEBPS/entry-1.xhtml"].contains("dir="));
+    assert!(left["OEBPS/content.opf"].contains("<spine><itemref"));
+}
+
+#[test]
+fn a_language_scope_is_a_division_that_names_its_language_and_direction() {
+    let html = html(&doc(vec![
+        Block::Lang {
+            lang: "de-AT".into(),
+            dir: None,
+            children: vec![para("Ein Satz.")],
+        },
+        Block::Lang {
+            lang: "ar".into(),
+            dir: Some(Dir::Rtl),
+            children: vec![para("نص")],
+        },
+        Block::Lang {
+            lang: "en".into(),
+            dir: Some(Dir::Ltr),
+            children: vec![],
+        },
+    ]));
+    assert!(
+        html.contains(r#"<div lang="de-AT" xml:lang="de-AT"><p>Ein Satz.</p></div>"#),
+        "{html}"
+    );
+    assert!(
+        html.contains(r#"<div lang="ar" xml:lang="ar" dir="rtl"><p>نص</p></div>"#),
+        "{html}"
+    );
+    assert!(
+        !html.contains(r#"lang="en""#),
+        "an empty scope is no scope: {html}"
+    );
+}
+
+#[test]
+fn a_language_tag_that_is_markup_is_left_out_and_the_text_kept() {
+    for tag in HOSTILE
+        .iter()
+        .copied()
+        .chain(["de\" onload=\"x", "ar><script>", "en&amp;"])
+    {
+        let entry = doc(vec![Block::Lang {
+            lang: tag.into(),
+            dir: Some(Dir::Rtl),
+            children: vec![para(tag)],
+        }]);
+        let page = &epub_text(&entry, &[], &BTreeMap::new())["OEBPS/entry-1.xhtml"];
+        assert!(page.contains(r#"<div dir="rtl"><p>"#), "{tag:?}: {page}");
+        assert!(text_of(page).contains(tag), "{tag:?}: {page}");
+    }
 }

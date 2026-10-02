@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use typesep_model::{
-    Align, Attachment, AttachmentKind, Block, Decoration, Doc, Figure, Inline, List, MathMode,
+    Align, Attachment, AttachmentKind, Block, Decoration, Dir, Doc, Figure, Inline, List, MathMode,
     NoteRef, NoteTable, Rules, Table, TableCell, VerseLine,
 };
 use typesep_style::View;
@@ -688,14 +688,55 @@ fn block_html(node: &Block, ctx: &mut Ctx) -> String {
         }
         Block::Verse { lines } if lines.is_empty() => String::new(),
         Block::Verse { lines } => verse_html(lines, ctx),
+        Block::Lang {
+            lang,
+            dir,
+            children,
+        } => lang_html(lang, *dir, children, ctx),
     }
 }
 
-pub fn document_xhtml(title: &str, lang: &str, body: &str) -> String {
+/// Blocks in a language of their own, in a division that names it, and their direction when
+/// they say. A tag that is not a language tag is said, and left out.
+fn lang_html(lang: &str, dir: Option<Dir>, children: &[Block], ctx: &mut Ctx) -> String {
+    let body = blocks_html(children, ctx).join("");
+    if body.is_empty() {
+        return String::new();
+    }
+    let mut attrs = String::new();
+    match typesep_typst::lang::bcp47(lang) {
+        Some(tag) => attrs.push_str(&format!(" lang=\"{tag}\" xml:lang=\"{tag}\"")),
+        None => {
+            let warning = format!(
+                "a part of the text names the language \"{}\", which is no language tag; it is left in the language around it",
+                lang.escape_debug()
+            );
+            if !ctx.warnings.contains(&warning) {
+                ctx.warnings.push(warning);
+            }
+        }
+    }
+    attrs.push_str(dir_attr(dir));
+    format!("<div{attrs}>{body}</div>")
+}
+
+/// The `dir` attribute a direction is written as, none for the document's own.
+fn dir_attr(dir: Option<Dir>) -> &'static str {
+    match dir {
+        Some(Dir::Rtl) => " dir=\"rtl\"",
+        Some(Dir::Ltr) => " dir=\"ltr\"",
+        None => "",
+    }
+}
+
+/// A content document: `title` in its head, `body` in its body, in `lang`, and in `dir` when
+/// the document is written right to left.
+pub fn document_xhtml(title: &str, lang: &str, dir: Dir, body: &str) -> String {
     let lang = esc(lang);
+    let dir = dir_attr((dir == Dir::Rtl).then_some(Dir::Rtl));
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="{lang}" xml:lang="{lang}">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="{lang}" xml:lang="{lang}"{dir}>
 <head><meta charset="utf-8"/><title>{}</title>
 <link rel="stylesheet" type="text/css" href="style.css"/></head>
 <body>{body}</body></html>"#,

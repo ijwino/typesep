@@ -57,7 +57,7 @@ Under the hood:
 Under the hood:
 
 - **document** (set text(size:) with top-edge 1em and a baseline bottom edge, so the line pitch is the body size plus the leading whatever the font's own ascender; set document() for the PDF metadata. Typst has no document class, so advanced.documentClass is ignored): `typography.fontSize`.
-- **language and hyphenation** (set text(lang:) selects the hyphenation patterns; set text(hyphenate:) turns hyphenation off): `typography.language`, `typography.hyphenate`.
+- **language and hyphenation** (set text(lang:) selects the hyphenation patterns, and set text(dir: rtl) the direction of a document written right to left; set text(hyphenate:) turns hyphenation off, as it is, with a note, for a language Typst has no patterns for): `typography.language`, `typography.hyphenate`.
 - **paragraph shape** (set par(leading:, spacing:, justify:, first-line-indent:) and set text(costs:), where TeX's default penalties (150, 150, 50) are 100%. Typst never stretches a page, so typography.raggedBottom false, tolerance and emergencyStretch have nothing to drive): `typography.leading`, `typography.parIndent`, `typography.parSkip`, `typography.justify`, `typography.raggedBottom`, `typography.penalties.*`, `typography.tolerance`, `typography.emergencyStretch`.
 - **microtypography** (set text(overhang:) for protrusion; Typst has no font expansion, so typography.microtype.expansion has nothing to drive): `typography.microtype.protrusion`, `typography.microtype.expansion`.
 

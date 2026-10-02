@@ -3,13 +3,14 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use typesep_model::{
-    Align, Attachment, AttachmentKind, Block, Decoration, Doc, Figure, Inline, List, ListNumbering,
-    Meta, NoteRef, NoteTable, Rules, Section, Table, TableCell, TocItem, VerseLine,
+    Align, Attachment, AttachmentKind, Block, Decoration, Dir, Doc, Figure, Inline, List,
+    ListNumbering, Meta, NoteRef, NoteTable, Rules, Section, Table, TableCell, TocItem, VerseLine,
 };
 use typesep_style::Style;
 
 use crate::escape::{escape_code, escape_string, escape_text, guard_line_start, safe_id};
 use crate::fonts::Fonts;
+use crate::lang::TypstLang;
 use crate::math::Converter;
 use crate::preamble::{Helper, PreambleInput, build_preamble};
 use crate::style::typst_pt;
@@ -263,7 +264,8 @@ fn walk_block(block: &Block, visit: &mut impl FnMut(&Inline)) {
         }
         Block::Blockquote { children }
         | Block::Remark { children, .. }
-        | Block::Aside { children } => {
+        | Block::Aside { children }
+        | Block::Lang { children, .. } => {
             for block in children {
                 walk_block(block, visit);
             }
@@ -401,7 +403,8 @@ fn walk_doc_blocks(doc: &Doc, visit: &mut impl FnMut(&Block)) {
                 }
                 Block::Blockquote { children }
                 | Block::Remark { children, .. }
-                | Block::Aside { children } => walk(children, visit),
+                | Block::Aside { children }
+                | Block::Lang { children, .. } => walk(children, visit),
                 Block::Columns { columns } => {
                     for column in columns {
                         walk(column, visit);
@@ -590,7 +593,60 @@ fn block(node: &Block, ctx: &mut Ctx<'_>) -> Option<String> {
             Some(format!("#fs-columns({})", columns.join(", ")))
         }
         Block::Verse { lines } => verse(lines, ctx),
+        Block::Lang {
+            lang,
+            dir,
+            children,
+        } => lang_scope(lang, *dir, children, ctx),
     }
+}
+
+/// Blocks in a language of their own: set in it, and in its direction when it says, with the
+/// hyphenation of the language, or none, which is said once, when Typst has no patterns for
+/// it. A tag that is not a language tag is said too, and its blocks keep the language around
+/// them; no tag reaches the source unless it is one.
+fn lang_scope(
+    lang: &str,
+    dir: Option<Dir>,
+    children: &[Block],
+    ctx: &mut Ctx<'_>,
+) -> Option<String> {
+    let body = joined(children, ctx);
+    if body.trim().is_empty() {
+        return None;
+    }
+    let mut args = Vec::new();
+    match crate::lang::typst_lang(lang) {
+        Some(TypstLang { lang, region }) => {
+            args.push(format!("lang: \"{lang}\""));
+            if let Some(region) = region {
+                args.push(format!("region: \"{region}\""));
+            }
+            if ctx.view.bool("typography.hyphenate") && !crate::lang::has_hyphenation(&lang) {
+                ctx.warn(format!(
+                    "Typst has no hyphenation patterns for {lang}, so text in it is not hyphenated"
+                ));
+                args.push("hyphenate: false".to_owned());
+            }
+        }
+        None => ctx.warn(format!(
+            "a part of the text names the language {}, which is no language tag; it is set in the language around it",
+            escape_string(lang)
+        )),
+    }
+    match dir {
+        Some(Dir::Rtl) => args.push("dir: rtl".to_owned()),
+        Some(Dir::Ltr) => args.push("dir: ltr".to_owned()),
+        None => {}
+    }
+    if args.is_empty() {
+        return Some(body);
+    }
+    Some(format!(
+        "#[\n#set text({})\n\n{}\n]",
+        args.join(", "),
+        guard_line_start(&body)
+    ))
 }
 
 /// A paragraph, after `lead` (markup that opens it, as a remark's number) when there is one.
@@ -1768,6 +1824,7 @@ pub fn emit_document(docs: &[&Doc], style: &Style, opts: EmitOptions<'_>) -> Ren
         date: retrieval_dates(&metas),
         subject: meta.origin.publisher.clone(),
         lang: meta.lang.clone(),
+        dir: meta.dir,
         helpers: std::mem::take(&mut ctx.helpers),
         chars: printed_chars(docs, opts.volume, &view),
     };
