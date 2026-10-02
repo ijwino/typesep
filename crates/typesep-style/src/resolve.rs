@@ -13,7 +13,7 @@ pub struct StyleError(pub String);
 pub const DEFAULT_PRESET: &str = "halfletter";
 pub const PRESET_KEY: &str = "preset";
 
-pub const PRESETS: [(&str, &str); 6] = [
+pub const PRESETS: [(&str, &str); 7] = [
     (
         "a4-reading",
         include_str!("../../../styles/a4-reading.yaml"),
@@ -25,6 +25,7 @@ pub const PRESETS: [(&str, &str); 6] = [
         "halfletter",
         include_str!("../../../styles/halfletter.yaml"),
     ),
+    ("lwp", include_str!("../../../styles/lwp.yaml")),
     (
         "manuscript",
         include_str!("../../../styles/manuscript.yaml"),
@@ -291,6 +292,9 @@ pub struct ResolveOptions<'a> {
     /// The table the style is read against, made for the sources in use; without one, the
     /// table for no source at all.
     pub schema: Option<&'a Schema>,
+    /// The preset when neither `preset` nor the style file names one, as the source of the
+    /// works typeset asks for; without one, `DEFAULT_PRESET`.
+    pub default_preset: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -326,7 +330,7 @@ pub fn resolve_style(opts: ResolveOptions<'_>) -> Result<Style, StyleError> {
         .preset
         .map(str::to_owned)
         .or_else(|| from_file.as_ref().and_then(|(p, _, _)| p.clone()))
-        .unwrap_or_else(|| DEFAULT_PRESET.to_owned());
+        .unwrap_or_else(|| opts.default_preset.unwrap_or(DEFAULT_PRESET).to_owned());
     apply_layer(schema, &mut style, &load_preset(&base)?, &|_| {
         format!("preset {base}")
     })?;
@@ -433,7 +437,37 @@ mod tests {
             file: None,
             sets: sets.iter().map(|s| SetItem::from(*s)).collect(),
             schema: None,
+            default_preset: None,
         })
+    }
+
+    #[test]
+    fn a_sources_preset_is_the_base_only_when_nothing_names_another() {
+        let base = |preset: Option<&str>, file: Option<&Path>| {
+            resolve_style(ResolveOptions {
+                preset,
+                file,
+                sets: Vec::new(),
+                schema: None,
+                default_preset: Some("ereader"),
+            })
+            .unwrap()
+            .get("page.size")
+            .cloned()
+        };
+        let ereader = Some(Value::str("90mmx120mm"));
+        assert_eq!(base(None, None), ereader);
+        assert_eq!(base(Some("a5-book"), None), Some(Value::str("a5")));
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("s.yaml");
+        std::fs::write(&file, "preset: halfletter\n").unwrap();
+        assert_eq!(base(None, Some(&file)), Some(Value::str("5.5inx8.5in")));
+        std::fs::write(&file, "typography: {fontSize: 9pt}\n").unwrap();
+        assert_eq!(
+            base(None, Some(&file)),
+            ereader,
+            "a file without a preset key"
+        );
     }
 
     fn s(x: &str) -> Value {
@@ -546,7 +580,7 @@ mod tests {
         let err = resolve(Some("nope"), &[]).unwrap_err();
         assert_eq!(
             err.0,
-            "unknown preset \"nope\"\n  available: a4-reading, a5-book, compact, ereader, halfletter, manuscript"
+            "unknown preset \"nope\"\n  available: a4-reading, a5-book, compact, ereader, halfletter, lwp, manuscript"
         );
         let err = resolve_style(ResolveOptions {
             preset: Some("none"),
@@ -556,6 +590,7 @@ mod tests {
                 .map(SetItem::from)
                 .collect(),
             schema: None,
+            default_preset: None,
         })
         .unwrap_err();
         assert!(
@@ -570,6 +605,7 @@ mod tests {
                 SetItem::from("fonts.main.scale=big"),
             ],
             schema: None,
+            default_preset: None,
         })
         .unwrap_err();
         assert!(
@@ -610,6 +646,7 @@ mod tests {
                 file: Some(file),
                 sets: vec![],
                 schema: None,
+                default_preset: None,
             })
             .unwrap();
             assert_eq!(style.get("page.twoside"), Some(&Value::Bool(true)));
@@ -619,6 +656,7 @@ mod tests {
                 file: Some(file),
                 sets: vec![],
                 schema: None,
+                default_preset: None,
             })
             .unwrap();
             assert_eq!(explicit.get("page.twoside"), Some(&Value::Bool(false)));
@@ -630,6 +668,7 @@ mod tests {
                 file: Some(file),
                 sets: vec![],
                 schema: None,
+                default_preset: None,
             })
             .unwrap();
             assert_eq!(
@@ -644,6 +683,7 @@ mod tests {
                 file: Some(file),
                 sets: vec![],
                 schema: None,
+                default_preset: None,
             })
             .unwrap_err();
             assert!(err.0.starts_with("unknown preset \"nope\""), "{err}");
@@ -654,6 +694,7 @@ mod tests {
                 file: Some(file),
                 sets: vec![],
                 schema: None,
+                default_preset: None,
             })
             .unwrap_err();
             assert!(
@@ -667,6 +708,7 @@ mod tests {
                 file: Some(file),
                 sets: vec![],
                 schema: None,
+                default_preset: None,
             })
             .unwrap();
             assert_eq!(style.get("page.size"), Some(&s("a4")), "JSON is YAML");
@@ -677,6 +719,7 @@ mod tests {
                 file: Some(file),
                 sets: vec![],
                 schema: None,
+                default_preset: None,
             })
             .unwrap();
             assert_eq!(
@@ -691,6 +734,7 @@ mod tests {
                 file: Some(file),
                 sets: vec![],
                 schema: None,
+                default_preset: None,
             })
             .unwrap();
             assert_eq!(
@@ -705,6 +749,7 @@ mod tests {
                 file: Some(file),
                 sets: vec![],
                 schema: None,
+                default_preset: None,
             })
             .unwrap_err();
             assert!(
@@ -720,6 +765,7 @@ mod tests {
                     file: Some(file),
                     sets: vec![],
                     schema: None,
+                    default_preset: None,
                 })
                 .is_err()
             );
@@ -731,6 +777,7 @@ mod tests {
                     file: Some(file),
                     sets: vec![],
                     schema: None,
+                    default_preset: None,
                 })
                 .unwrap_err();
                 assert!(
@@ -746,6 +793,7 @@ mod tests {
             file: Some(Path::new("/nonexistent/style.yaml")),
             sets: vec![],
             schema: None,
+            default_preset: None,
         })
         .unwrap_err();
         assert_eq!(err.0, "style file not found: /nonexistent/style.yaml");

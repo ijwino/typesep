@@ -821,6 +821,7 @@ fn resolve(style: &StyleOptions, matches: &ArgMatches) -> Result<Style, StyleErr
         file: file.as_deref(),
         sets,
         schema: Some(schema()),
+        default_preset: None,
     })
 }
 
@@ -1719,6 +1720,7 @@ mod tests {
             file: None,
             sets: sets.iter().map(|s| (*s).into()).collect(),
             schema: None,
+            default_preset: None,
         })
         .unwrap()
     }

@@ -8,6 +8,6 @@ exit: 1
 
 --- stderr ---
 typesep: unknown preset "nope"
-  available: a4-reading, a5-book, compact, ereader, halfletter, manuscript
+  available: a4-reading, a5-book, compact, ereader, halfletter, lwp, manuscript
 
 --- end ---

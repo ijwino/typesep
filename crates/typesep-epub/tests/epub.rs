@@ -20,6 +20,7 @@ fn style() -> Style {
         file: None,
         sets: vec![],
         schema: None,
+        default_preset: None,
     })
     .unwrap()
 }
@@ -398,6 +399,7 @@ fn epub_text(
         file: None,
         sets: sets.iter().map(|s| (*s).into()).collect(),
         schema: None,
+        default_preset: None,
     })
     .unwrap();
     let sections = every_section();
@@ -866,6 +868,7 @@ fn the_notes_the_document_holds_are_in_the_nav_when_they_are_an_appendix() {
         file: None,
         sets: vec!["notes.style=appendix".into()],
         schema: None,
+        default_preset: None,
     })
     .unwrap();
     let view = View::new(&style);

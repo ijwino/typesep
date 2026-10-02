@@ -1,0 +1,26 @@
+# Half-letter pages for the texts of the Wittgenstein Project: remarks set apart, not indented, with room in the margins for sigla.
+page:
+  size: 5.5inx8.5in
+  margins: {top: 0.6in, bottom: 0.7in, inner: 1in, outer: 1in}
+
+typography:
+  fontSize: 10pt
+  leading: 1.5
+  justify: true
+  hyphenate: true
+  parIndent: 0pt
+  parSkip: 0.5em
+
+fonts:
+  main: {family: TeX Gyre Termes, features: {Ligatures: TeX}}
+  math: {family: TeX Gyre Termes Math}
+
+headings:
+  h1: {size: 1.8, style: regular, align: center, spaceBefore: 23pt, spaceAfter: 1.2em}
+  h2: {size: 1.1, style: italic, align: center, spaceBefore: 1.6em, spaceAfter: 0.8em}
+
+pageFurniture:
+  footer: {center: '{page}', right: ''}
+
+toc:
+  style: none

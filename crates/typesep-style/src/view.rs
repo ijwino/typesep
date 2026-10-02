@@ -139,6 +139,7 @@ mod tests {
             file: None,
             sets: vec![],
             schema: None,
+            default_preset: None,
         })
         .unwrap()
     }

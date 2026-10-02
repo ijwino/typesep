@@ -12,6 +12,7 @@ fn style(sets: &[&str]) -> Style {
         file: None,
         sets: sets.iter().map(|s| (*s).into()).collect(),
         schema: None,
+        default_preset: None,
     })
     .unwrap()
 }
