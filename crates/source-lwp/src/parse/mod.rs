@@ -176,7 +176,10 @@ pub fn parse_page(answer: &str, opts: &ParseOptions) -> Result<Doc, String> {
             dateline: String::new(),
             credit: String::new(),
             lang: root.attr("lang").unwrap_or_default().to_owned(),
-            dir: Dir::Ltr,
+            dir: match root.attr("dir") {
+                Some(dir) if dir.trim().eq_ignore_ascii_case("rtl") => Dir::Rtl,
+                _ => Dir::Ltr,
+            },
             origin: Origin {
                 source: SOURCE.to_owned(),
                 publisher: PUBLISHER.to_owned(),
@@ -455,5 +458,20 @@ NewPP limit report
             "and without a colophon states no rights"
         );
         assert_eq!(bare.meta.lang, "");
+        assert_eq!(bare.meta.dir, Dir::Ltr);
+    }
+
+    #[test]
+    fn a_text_written_right_to_left_says_so() {
+        let page = |attrs: &str| {
+            doc(&format!(
+                "<div class=\"mw-parser-output\" {attrs}><p>نص</p></div>"
+            ))
+            .meta
+        };
+        let arabic = page(r#"lang="ar" dir="rtl""#);
+        assert_eq!((arabic.lang.as_str(), arabic.dir), ("ar", Dir::Rtl));
+        assert_eq!(page(r#"lang="de" dir="ltr""#).dir, Dir::Ltr);
+        assert_eq!(page(r#"lang="hi""#).dir, Dir::Ltr);
     }
 }
