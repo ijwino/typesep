@@ -16,6 +16,9 @@ pub struct PreambleInput {
     pub edition: String,
     pub date: String,
     pub subject: String,
+    /// The language the document names, an ISO 639 code such as "de", which
+    /// `typography.language: auto` follows.
+    pub lang: String,
     /// The helpers the document's own constructs need, which the preamble defines after the
     /// ones every document has.
     pub helpers: BTreeSet<Helper>,
@@ -167,51 +170,80 @@ fn scale_var(role: &str) -> &'static str {
     }
 }
 
+/// The Babel names typesep knows, by the ISO 639 code Typst takes for them.
+#[rustfmt::skip]
+const LANGUAGES: [(&str, &[&str]); 40] = [
+    ("en", &["english", "american", "usenglish", "british", "ukenglish", "canadian", "australian", "newzealand"]),
+    ("de", &["german", "ngerman", "austrian", "naustrian", "swissgerman"]),
+    ("fr", &["french", "francais", "canadien"]),
+    ("es", &["spanish"]),
+    ("it", &["italian"]),
+    ("pt", &["portuguese", "portuges", "brazilian", "brazil"]),
+    ("nl", &["dutch"]),
+    ("da", &["danish"]),
+    ("sv", &["swedish"]),
+    ("nb", &["norsk", "nynorsk", "norwegian"]),
+    ("fi", &["finnish"]),
+    ("is", &["icelandic"]),
+    ("pl", &["polish"]),
+    ("cs", &["czech"]),
+    ("sk", &["slovak"]),
+    ("hu", &["hungarian", "magyar"]),
+    ("ro", &["romanian"]),
+    ("hr", &["croatian"]),
+    ("sl", &["slovene", "slovenian"]),
+    ("sr", &["serbian"]),
+    ("bg", &["bulgarian"]),
+    ("ru", &["russian"]),
+    ("uk", &["ukrainian"]),
+    ("el", &["greek", "polutonikogreek"]),
+    ("tr", &["turkish"]),
+    ("la", &["latin"]),
+    ("he", &["hebrew"]),
+    ("ar", &["arabic"]),
+    ("ja", &["japanese"]),
+    ("zh", &["chinese"]),
+    ("ko", &["korean"]),
+    ("ca", &["catalan"]),
+    ("gl", &["galician"]),
+    ("eu", &["basque"]),
+    ("et", &["estonian"]),
+    ("lv", &["latvian"]),
+    ("lt", &["lithuanian"]),
+    ("ga", &["irish"]),
+    ("cy", &["welsh"]),
+    ("eo", &["esperanto"]),
+];
+
+/// What `typography.language` means when the document's own language is to be followed.
+pub const AUTO_LANGUAGE: &str = "auto";
+
 fn lang_code(babel: &str) -> Option<&'static str> {
-    Some(match babel.to_lowercase().as_str() {
-        "english" | "american" | "usenglish" | "british" | "ukenglish" | "canadian"
-        | "australian" | "newzealand" => "en",
-        "german" | "ngerman" | "austrian" | "naustrian" | "swissgerman" => "de",
-        "french" | "francais" | "canadien" => "fr",
-        "spanish" => "es",
-        "italian" => "it",
-        "portuguese" | "portuges" | "brazilian" | "brazil" => "pt",
-        "dutch" => "nl",
-        "danish" => "da",
-        "swedish" => "sv",
-        "norsk" | "nynorsk" | "norwegian" => "nb",
-        "finnish" => "fi",
-        "icelandic" => "is",
-        "polish" => "pl",
-        "czech" => "cs",
-        "slovak" => "sk",
-        "hungarian" | "magyar" => "hu",
-        "romanian" => "ro",
-        "croatian" => "hr",
-        "slovene" | "slovenian" => "sl",
-        "serbian" => "sr",
-        "bulgarian" => "bg",
-        "russian" => "ru",
-        "ukrainian" => "uk",
-        "greek" | "polutonikogreek" => "el",
-        "turkish" => "tr",
-        "latin" => "la",
-        "hebrew" => "he",
-        "arabic" => "ar",
-        "japanese" => "ja",
-        "chinese" => "zh",
-        "korean" => "ko",
-        "catalan" => "ca",
-        "galician" => "gl",
-        "basque" => "eu",
-        "estonian" => "et",
-        "latvian" => "lv",
-        "lithuanian" => "lt",
-        "irish" => "ga",
-        "welsh" => "cy",
-        "esperanto" => "eo",
-        _ => return None,
-    })
+    let babel = babel.to_lowercase();
+    LANGUAGES
+        .iter()
+        .find(|(_, names)| names.contains(&babel.as_str()))
+        .map(|(code, _)| *code)
+}
+
+/// The language Typst sets a document in whose metadata names `code`, an ISO 639 code that
+/// may carry a region (`de-AT`): the language itself when typesep knows it, else English,
+/// which is said unless the document names no language at all.
+fn document_lang(code: &str, ctx: &Ctx<'_>) -> &'static str {
+    let primary = code
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if let Some((known, _)) = LANGUAGES.iter().find(|(known, _)| *known == primary) {
+        return known;
+    }
+    if !code.trim().is_empty() {
+        ctx.warn(format!(
+            "the document's language \"{code}\" is not one typography.language auto knows; using english"
+        ));
+    }
+    "en"
 }
 
 fn bullet_char(label: &str) -> String {
@@ -365,7 +397,10 @@ pub const EMITTERS: &[Emitter] = &[
         emit: |ctx| {
             let view = ctx.view;
             let babel = view.str("typography.language");
-            let lang = lang_code(&babel).map(str::to_owned).unwrap_or_else(|| {
+            let lang = if babel == AUTO_LANGUAGE {
+                document_lang(&ctx.input.lang, ctx).to_owned()
+            } else {
+                lang_code(&babel).map(str::to_owned).unwrap_or_else(|| {
                 if babel.len() == 2 && babel.chars().all(|c| c.is_ascii_alphabetic()) {
                     babel.to_lowercase()
                 } else {
@@ -374,7 +409,8 @@ pub const EMITTERS: &[Emitter] = &[
                     ));
                     "en".to_owned()
                 }
-            });
+                })
+            };
             vec![format!(
                 "#set text(lang: \"{lang}\", hyphenate: {})",
                 view.bool("typography.hyphenate")
@@ -1171,7 +1207,61 @@ mod tests {
         assert_eq!(bullet_char("*"), "*");
         assert_eq!(bullet_char("\\nosuch"), "nosuch");
         assert_eq!(lang_code("english"), Some("en"));
-        assert_eq!(lang_code("ngerman"), Some("de"));
+        assert_eq!(lang_code("NGerman"), Some("de"));
         assert_eq!(lang_code("klingon"), None);
+    }
+
+    #[test]
+    fn the_language_follows_the_document_unless_the_style_names_one() {
+        let lang_line = |sets: &[&str], lang: &str| {
+            let style = style_with(sets);
+            let view = View::new(&style);
+            let input = PreambleInput {
+                lang: lang.to_owned(),
+                ..PreambleInput::default()
+            };
+            let (text, warnings) = build_preamble(&view, &input, None);
+            let line = text
+                .lines()
+                .find(|line| line.starts_with("#set text(lang:"))
+                .expect("a language line")
+                .to_owned();
+            (line, warnings)
+        };
+        let set = |code: &str| format!("#set text(lang: \"{code}\", hyphenate: true)");
+        for (lang, code) in [
+            ("en", "en"),
+            ("de", "de"),
+            ("fr", "fr"),
+            ("it", "it"),
+            ("es", "es"),
+        ] {
+            assert_eq!(lang_line(&[], lang), (set(code), vec![]), "{lang}");
+        }
+        assert_eq!(lang_line(&[], "de-AT"), (set("de"), vec![]));
+        assert_eq!(
+            lang_line(&[], ""),
+            (set("en"), vec![]),
+            "a document that names no language is set in English without a word"
+        );
+        assert_eq!(
+            lang_line(&[], "hi"),
+            (
+                set("en"),
+                vec![
+                    "the document's language \"hi\" is not one typography.language auto knows; using english"
+                        .to_owned()
+                ]
+            )
+        );
+        assert_eq!(
+            lang_line(&["typography.language=french"], "de"),
+            (set("fr"), vec![]),
+            "a language the style names wins"
+        );
+        assert_eq!(
+            lang_line(&["typography.language=auto"], "it"),
+            (set("it"), vec![])
+        );
     }
 }

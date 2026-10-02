@@ -42,7 +42,7 @@ Under the hood:
 | `typography.leading` | a multiplier like 1.15, or an absolute length like 13pt, greater than 0 | `1.15` | Line spacing, as a multiplier or an absolute baseline distance. |
 | `typography.justify` | true or false | `true` | Justify body text (off gives a ragged right edge). |
 | `typography.hyphenate` | true or false | `true` | Allow hyphenation at line breaks. |
-| `typography.language` | text | `"english"` | Babel language, which selects the hyphenation patterns. |
+| `typography.language` | text | `"auto"` | Babel language, which selects the hyphenation patterns. "auto" follows the language the document names (the first one's, in a merge). |
 | `typography.parIndent` | a length such as 0.6in, 12pt, 1.5em (units: pt, bp, mm, cm, in, pc, em, ex, sp) | `"1.2em"` | First-line indent of paragraphs. |
 | `typography.parSkip` | a length such as 0.6in, 12pt, 1.5em (units: pt, bp, mm, cm, in, pc, em, ex, sp) | `"0pt"` | Extra vertical space between paragraphs. |
 | `typography.raggedBottom` | true or false | `true` | Let the last line of a page float instead of stretching to the bottom. |

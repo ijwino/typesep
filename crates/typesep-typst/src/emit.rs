@@ -1632,6 +1632,7 @@ pub fn emit_document(docs: &[&Doc], style: &Style, opts: EmitOptions<'_>) -> Ren
         edition: meta.origin.edition_label.clone(),
         date: retrieval_dates(&metas),
         subject: meta.origin.publisher.clone(),
+        lang: meta.lang.clone(),
         helpers: std::mem::take(&mut ctx.helpers),
     };
     let (preamble, mut warnings) = build_preamble(&view, &input, opts.fonts);

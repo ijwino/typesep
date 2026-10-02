@@ -21,7 +21,7 @@ typography:
   leading: 1.25
   justify: true
   hyphenate: true
-  language: english
+  language: auto
   parIndent: 0pt
   parSkip: 0.4em
   raggedBottom: true

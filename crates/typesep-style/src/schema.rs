@@ -559,7 +559,7 @@ fn build_knobs(sections: &SourceSections) -> Vec<Knob> {
         k("typography.leading", positive(FactorOrLength), num(1.15), "Line spacing, as a multiplier or an absolute baseline distance."),
         k("typography.justify", Boolean, Value::Bool(true), "Justify body text (off gives a ragged right edge)."),
         k("typography.hyphenate", Boolean, Value::Bool(true), "Allow hyphenation at line breaks."),
-        k("typography.language", String, text("english"), "Babel language, which selects the hyphenation patterns."),
+        k("typography.language", String, text("auto"), "Babel language, which selects the hyphenation patterns. \"auto\" follows the language the document names (the first one's, in a merge)."),
         k("typography.parIndent", Length, text("1.2em"), "First-line indent of paragraphs."),
         k("typography.parSkip", Length, text("0pt"), "Extra vertical space between paragraphs."),
         k("typography.raggedBottom", Boolean, Value::Bool(true), "Let the last line of a page float instead of stretching to the bottom."),

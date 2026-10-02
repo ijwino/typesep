@@ -28,7 +28,7 @@ typography:
   leading: 1.5
   justify: false
   hyphenate: true
-  language: english
+  language: auto
   parIndent: 1.2em
   parSkip: 0pt
   raggedBottom: true
