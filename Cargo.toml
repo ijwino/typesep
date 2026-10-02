@@ -7,6 +7,7 @@ members = [
     "crates/typesep-net",
     "crates/typesep-typst",
     "crates/typesep-epub",
+    "crates/typesep-compose",
     "crates/source-sep",
     "crates/source-lwp",
     "crates/typesep",
@@ -26,6 +27,7 @@ typesep-html = { path = "crates/typesep-html" }
 typesep-net = { path = "crates/typesep-net" }
 typesep-typst = { path = "crates/typesep-typst" }
 typesep-epub = { path = "crates/typesep-epub" }
+typesep-compose = { path = "crates/typesep-compose" }
 source-sep = { path = "crates/source-sep" }
 source-lwp = { path = "crates/source-lwp" }
 serde = { version = "1", features = ["derive"] }

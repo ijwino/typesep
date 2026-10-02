@@ -3235,6 +3235,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "typesep-compose"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror",
+ "typesep-model",
+]
+
+[[package]]
 name = "typesep-epub"
 version = "0.1.0"
 dependencies = [
