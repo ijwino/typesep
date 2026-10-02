@@ -44,6 +44,9 @@ pub struct Figure {
     /// black and white.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ebook_src: Option<String>,
+    /// The width the source shows the figure at, in CSS pixels, when it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width_px: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption: Option<Vec<Inline>>,
     #[serde(
@@ -445,6 +448,7 @@ mod tests {
                             src: "https://plato.stanford.edu/entries/x/f.png".into(),
                             alt: "".into(),
                             ebook_src: None,
+                            width_px: None,
                             caption: None,
                             id: None,
                             inline: Some(true),
@@ -463,6 +467,7 @@ mod tests {
                     src: "s".into(),
                     alt: "a".into(),
                     ebook_src: None,
+                    width_px: None,
                     caption: Some(vec![]),
                     id: Some(None),
                     inline: None,
@@ -645,6 +650,7 @@ mod tests {
                     src: "bw.png".into(),
                     alt: "".into(),
                     ebook_src: Some("colour.png".into()),
+                    width_px: Some(120),
                     caption: None,
                     id: None,
                     inline: None,
@@ -680,7 +686,7 @@ mod tests {
                     { "header": false, "colspan": 1, "rowspan": 1, "children": [], "edges": { "top": true, "right": false, "bottom": true, "left": false } }
                 ]] },
                 { "type": "table", "rules": "none", "columns": 0, "rows": [] },
-                { "type": "figure", "src": "bw.png", "alt": "", "ebookSrc": "colour.png" }
+                { "type": "figure", "src": "bw.png", "alt": "", "ebookSrc": "colour.png", "widthPx": 120 }
             ])
         );
         assert_eq!(

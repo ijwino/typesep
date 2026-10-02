@@ -536,13 +536,18 @@ impl Walker {
         Some(figure)
     }
 
-    /// The image `img` shows, at its address made absolute.
+    /// The image `img` shows, at its address made absolute, and at the width its `width`
+    /// attribute gives it, in CSS pixels.
     pub fn image(&self, img: ElementRef<'_>) -> Option<Figure> {
         let src = self.resolve(dom::truthy(img.attr("src"))?)?;
         Some(Figure {
             src,
             alt: js::trim(img.attr("alt").unwrap_or("")).to_owned(),
             ebook_src: None,
+            width_px: img
+                .attr("width")
+                .and_then(|width| js::trim(width).parse::<u32>().ok())
+                .filter(|width| *width > 0),
             caption: None,
             id: None,
             inline: None,
@@ -926,19 +931,19 @@ mod tests {
     #[test]
     fn figures_and_images_resolve_against_the_page() {
         let (body, _) = read(
-            "<figure id=\"f1\"><a href=\"/w/File:x\"><img src=\"/w/images/a/ab/X.png\" alt=\" an X \"/></a>\
-             <figcaption>The <i>X</i></figcaption></figure><figure><img src=\"y.png\"/><figcaption></figcaption></figure>\
-             <p>see <img src=\"z.png\"/></p>",
+            "<figure id=\"f1\"><a href=\"/w/File:x\"><img src=\"/w/images/a/ab/X.png\" alt=\" an X \" width=\"250\"/></a>\
+             <figcaption>The <i>X</i></figcaption></figure><figure><img src=\"y.png\" width=\"50%\"/><figcaption></figcaption></figure>\
+             <p>see <img src=\"z.png\" width=\"30\" height=\"14\"/></p>",
         );
         assert_eq!(
             body,
             json!([
-                { "type": "figure", "src": "https://example.org/w/images/a/ab/X.png", "alt": "an X", "id": "f1",
+                { "type": "figure", "src": "https://example.org/w/images/a/ab/X.png", "alt": "an X", "id": "f1", "widthPx": 250,
                   "caption": [{ "type": "text", "value": "The " }, { "type": "emph", "children": [{ "type": "text", "value": "X" }] }] },
                 { "type": "figure", "src": "https://example.org/w/y.png", "alt": "" },
                 { "type": "para", "children": [
                     { "type": "text", "value": "see " },
-                    { "type": "figure", "src": "https://example.org/w/z.png", "alt": "", "inline": true }
+                    { "type": "figure", "src": "https://example.org/w/z.png", "alt": "", "widthPx": 30, "inline": true }
                 ] }
             ])
         );

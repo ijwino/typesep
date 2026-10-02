@@ -310,6 +310,7 @@ fn an_svg_image_by_reference_does_not_mark_its_document_as_svg() {
         id: None,
         inline: None,
         ebook_src: None,
+        width_px: None,
     })]);
     let style = style();
     let sections = every_section();
@@ -698,6 +699,7 @@ fn a_figure_with_an_ebook_image_shows_that_image() {
         src: "grey.svg".into(),
         alt: "a square".into(),
         ebook_src: Some("colour.svg".into()),
+        width_px: None,
         caption: None,
         id: None,
         inline: None,
@@ -722,6 +724,42 @@ fn a_figure_with_an_ebook_image_shows_that_image() {
     assert!(
         members["OEBPS/img-1.svg"].contains("#888888"),
         "without its ebook image, a figure shows the one it has"
+    );
+}
+
+#[test]
+fn a_figure_is_as_wide_as_the_source_shows_it_and_the_page_allows() {
+    let sized = |width_px: Option<u32>, inline: bool| Figure {
+        src: "grey.svg".into(),
+        alt: "a square".into(),
+        ebook_src: None,
+        width_px,
+        caption: None,
+        id: None,
+        inline: inline.then_some(true),
+    };
+    let images = BTreeMap::from([("grey.svg".to_owned(), svg("sized-grey.svg", "#888888"))]);
+    let entry = doc(vec![
+        Block::Figure(sized(Some(250), false)),
+        Block::Para {
+            children: vec![text("a sign "), Inline::Figure(sized(Some(30), true))],
+            align: None,
+            indent_em: 0,
+        },
+        Block::Figure(sized(None, false)),
+    ]);
+    let members = epub_text(&entry, &[], &images);
+    let xhtml = &members["OEBPS/entry-1.xhtml"];
+    assert!(
+        xhtml.contains("<img src=\"img-1.svg\" alt=\"a square\" width=\"250\"/>"),
+        "{xhtml}"
+    );
+    assert!(xhtml.contains("<img src=\"img-1.svg\" alt=\"a square\" width=\"30\"/>"));
+    assert!(xhtml.contains("<img src=\"img-1.svg\" alt=\"a square\"/>"));
+    roxmltree::Document::parse(xhtml).expect("well-formed XHTML");
+    assert!(
+        members["OEBPS/style.css"].contains("img{max-width:100%;height:auto;}"),
+        "the style sheet keeps a wide one to the page"
     );
 }
 

@@ -168,6 +168,7 @@ mod tests {
                     id: None,
                     inline: None,
                     ebook_src: None,
+                    width_px: None,
                 }));
         }
         let locate = |url: &str| match url {

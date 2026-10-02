@@ -254,7 +254,7 @@ mod tests {
 <p><span class="ebook-ignore-style" style="margin-left: -3em; float: left;">ʃ</span>
 <span class="custom-desktop-only">|</span><span class="frazer-aside-par" id="Ms-1,2"><i>(Ms-1,2)</i></span> Mit Rand, <u>unter</u>, <s>durch</s>, <span style="text-decoration-line: underline; text-decoration-style: dashed;">gestrichelt</span>.
 </p>
-<div class="noebook"><figure><span><img src="/w/images/thumb/c/cd/Grau.png/220px-Grau.png" /></span></figure></div>
+<div class="noebook"><figure><span><img src="/w/images/thumb/c/cd/Grau.png/220px-Grau.png" width="220" /></span></figure></div>
 <div class="ebookonly" style="display: none;"><figure><span><img src="/w/images/thumb/e/ef/Bunt.png/220px-Bunt.png" /></span></figure></div>
 <div class="mw-references-wrap"><ol class="references">
 <li id="cite_note-a-1"><span class="mw-cite-backlink"><a href="#cite_ref-a_1-0">↑</a></span> <span class="reference-text">Eine <i>Fußnote</i>.</span>
@@ -354,7 +354,7 @@ NewPP limit report
                     { "type": "para", "children": [
                         t("Fortsetzung mit "), { "type": "math", "mode": "inline", "tex": "\\displaystyle{ x^2 }" }, t(".")
                     ] },
-                    { "type": "figure", "src": image("a/ab/Bild.png"), "alt": "" }
+                    { "type": "figure", "src": image("a/ab/Bild.png"), "alt": "", "widthPx": 120 }
                 ] },
                 { "type": "remark", "number": "1.1.", "id": "1.1", "children": [
                     { "type": "para", "children": [t("Zweite, mit Tabellen:")] },
@@ -384,7 +384,7 @@ NewPP limit report
                     { "type": "decorated", "line": "under", "dashed": true, "children": [t("gestrichelt")] },
                     t(".")
                 ] },
-                { "type": "figure", "src": image("c/cd/Grau.png"), "ebookSrc": image("e/ef/Bunt.png"), "alt": "" }
+                { "type": "figure", "src": image("c/cd/Grau.png"), "ebookSrc": image("e/ef/Bunt.png"), "alt": "", "widthPx": 220 }
             ])
         );
         assert_eq!(

@@ -36,6 +36,7 @@ pub enum Helper {
     Columns,
     Verse,
     PlainTable,
+    SizedFigure,
 }
 
 pub struct Emitter {
@@ -898,6 +899,16 @@ fn helper_definition(view: &View<'_>, helper: Helper) -> String {
             "#let fs-verse(..lines) = block(above: {around}, below: {around}, width: 100%, {{\n  set par(first-line-indent: 0pt, hanging-indent: 1em, justify: false)\n  for (indent, body) in lines.pos() {{ block(above: {line}, below: {line}, inset: (left: indent * 1em), par(body)) }}\n}})",
             line = gap(view, 0.0)
         ),
+        Helper::SizedFigure => {
+            let figure_align = ALIGN
+                .iter()
+                .find(|(name, _)| *name == view.str("blocks.figure.align"))
+                .map(|(_, typst)| *typst)
+                .unwrap_or("center");
+            format!(
+                "#let fs-figure-at(path, width, caption: none) = align({figure_align}, block(width: 100%, align({figure_align}, layout(size => {{\n  let natural = measure(image(path))\n  let shown = calc.min(width, fs-figure-max-width * size.width, natural.width * (0.8 * size.height / natural.height))\n  block[\n    #image(path, width: shown)\n    #if caption != none {{ v(0.4em, weak: true); fs-caption(caption) }}\n  ]\n}}))))\n#let fs-figure-inline-at(path, width) = box(layout(size => image(path, width: calc.min(width, size.width))))"
+            )
+        }
         Helper::PlainTable => "#let fs-table-plain(caption: none, columns: 1, ..cells) = align(center, block(width: auto)[\n  #if caption != none { fs-caption(caption); v(0.4em, weak: true) }\n  #text(size: fs-table-size, table(columns: columns, stroke: none, inset: 4pt, align: left, ..cells))\n])".to_owned(),
     }
 }

@@ -831,6 +831,7 @@ fn image_from(ctx: &Ctx, el: ElementRef) -> Option<Figure> {
         id: None,
         inline: None,
         ebook_src: None,
+        width_px: None,
     };
     if dom::is(&el, "object") {
         if let Some(fallback) = dom::descendants_named(*el, &["img"]).next() {

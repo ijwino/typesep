@@ -854,19 +854,31 @@ fn figure_markup(figure: &Figure, ctx: &mut Ctx<'_>) -> Option<String> {
             None => (!anchor.is_empty()).then_some(anchor),
         };
     };
+    // The width the source shows it at, a CSS pixel being 0.75 of Typst's points (not TeX's,
+    // which `typst_pt` converts from); the helpers keep it to the width there is.
+    let width = figure.width_px.map(|px| {
+        ctx.helpers.insert(Helper::SizedFigure);
+        format!("{}pt", typesep_style::units::fmt_pt(f64::from(px) * 0.75))
+    });
     if figure.inline == Some(true) {
-        return Some(format!(
-            "{anchor}#fs-figure-inline({})",
-            escape_string(&path)
-        ));
+        return Some(match width {
+            Some(width) => format!(
+                "{anchor}#fs-figure-inline-at({}, {width})",
+                escape_string(&path)
+            ),
+            None => format!("{anchor}#fs-figure-inline({})", escape_string(&path)),
+        });
     }
     let caption = caption
         .map(|c| format!(", caption: {}", content(&c)))
         .unwrap_or_default();
-    Some(format!(
-        "{anchor}#fs-figure({}{caption})",
-        escape_string(&path)
-    ))
+    Some(match width {
+        Some(width) => format!(
+            "{anchor}#fs-figure-at({}, {width}{caption})",
+            escape_string(&path)
+        ),
+        None => format!("{anchor}#fs-figure({}{caption})", escape_string(&path)),
+    })
 }
 
 fn figure_block(figure: &Figure, ctx: &mut Ctx<'_>) -> Option<String> {

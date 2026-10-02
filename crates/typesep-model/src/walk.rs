@@ -199,6 +199,7 @@ mod tests {
             src: src.to_owned(),
             alt: String::new(),
             ebook_src: None,
+            width_px: None,
             caption: None,
             id: None,
             inline: None,

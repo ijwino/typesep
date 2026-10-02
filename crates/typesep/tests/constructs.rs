@@ -317,6 +317,7 @@ fn fixture() -> Doc {
             src: "fixture/grey.svg".to_owned(),
             alt: "a square".to_owned(),
             ebook_src: Some("fixture/colour.svg".to_owned()),
+            width_px: None,
             caption: Some(vec![text(
                 "Grey in the PDF, coloured in the EPUB, which reads ebookSrc.",
             )]),

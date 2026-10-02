@@ -374,7 +374,16 @@ fn image_html(node: &Figure, ctx: &mut Ctx) -> String {
             name
         }
     };
-    format!("<img src=\"{}\" alt=\"{}\"/>", esc(&name), esc(&node.alt))
+    // The width the source shows it at; the style sheet's max-width keeps it to the page.
+    let width = node
+        .width_px
+        .map(|px| format!(" width=\"{px}\""))
+        .unwrap_or_default();
+    format!(
+        "<img src=\"{}\" alt=\"{}\"{width}/>",
+        esc(&name),
+        esc(&node.alt)
+    )
 }
 
 pub fn blocks_html(nodes: &[Block], ctx: &mut Ctx) -> Vec<String> {
