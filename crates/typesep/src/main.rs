@@ -21,9 +21,9 @@ use typesep_net::source::{
 };
 use typesep_style::shorthand::{choices_for, is_boolean, shorthand};
 use typesep_style::{
-    Explained, PRESET_KEY, ResolveOptions, SHORTHANDS, SetItem, Style, StyleError, Value, View,
-    explain_path, list_presets, match_ignoring_case, preset_catalog, preset_text, resolve_style,
-    shorthand_assignments,
+    Explained, PRESET_KEY, ResolveOptions, SHORTHANDS, Schema, SetItem, SourceSections, Style,
+    StyleError, Value, View, explain_path, list_presets, match_ignoring_case, preset_catalog,
+    preset_text, resolve_style, shorthand_assignments,
 };
 use typesep_typst::preamble::emitter_for;
 use typesep_typst::{
@@ -36,15 +36,21 @@ mod reference;
 
 const CONFIG_FILE: &str = "typesep.config.yaml";
 
-/// The sources typesep reads. Building it tells the style table the sections they name, so it
-/// comes before anything reads a style.
+/// The sources typesep reads.
 fn sources() -> &'static Registry {
-    static SOURCES: LazyLock<Registry> = LazyLock::new(|| {
-        let registry = Registry::new(vec![&Sep]);
-        typesep_style::regions::register(registry.section_keys());
-        registry
-    });
+    static SOURCES: LazyLock<Registry> = LazyLock::new(|| Registry::new(vec![&Sep]));
     &SOURCES
+}
+
+/// The style table, made for the sections the sources name.
+fn schema() -> &'static Schema {
+    static SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
+        Schema::new(&SourceSections {
+            keys: sources().section_keys(),
+            linked: sources().linked_section_keys(),
+        })
+    });
+    &SCHEMA
 }
 
 /// The `--sections` vocabulary: the default source's, until a command can name another.
@@ -755,7 +761,7 @@ fn explain(opts: &ExplainOptions) -> ExitCode {
         Ok(None) => arg.to_owned(),
         Err(message) => return user_error(message),
     };
-    match explain_path(&dotted) {
+    match explain_path(schema(), &dotted) {
         Err(err) => user_error(err),
         Ok(Explained::Group { prefix, knobs }) => {
             outln!("{prefix}.* covers {} options:", knobs.len());
@@ -814,6 +820,7 @@ fn resolve(style: &StyleOptions, matches: &ArgMatches) -> Result<Style, StyleErr
         preset: style.preset.as_deref(),
         file: file.as_deref(),
         sets,
+        schema: Some(schema()),
     })
 }
 
@@ -1646,7 +1653,6 @@ fn man_page() -> ExitCode {
 }
 
 fn command() -> clap::Command {
-    sources();
     with_shorthands(Cli::command())
         .mut_subcommand("build", with_shorthands)
         .mut_subcommand("style", with_shorthands)
@@ -1688,7 +1694,7 @@ fn main() -> ExitCode {
         Some(Command::List(opts)) => list(opts),
         Some(Command::Completions(opts)) => completions(opts),
         Some(Command::Man) => man_page(),
-        Some(Command::Reference) => reference::write(),
+        Some(Command::Reference) => reference::write(schema()),
     }
 }
 
@@ -1712,6 +1718,7 @@ mod tests {
             preset: Some("halfletter"),
             file: None,
             sets: sets.iter().map(|s| (*s).into()).collect(),
+            schema: None,
         })
         .unwrap()
     }

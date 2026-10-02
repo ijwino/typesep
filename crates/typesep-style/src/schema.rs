@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use super::resolve::nearest;
 use super::units::{LENGTH_UNITS, PAPER_SIZES, match_length, paper_size};
 use super::value::{Map, Value};
-use crate::regions::regions;
+use crate::regions::SourceSections;
 use typesep_html::js;
 use typesep_html::lazy_regex;
 
@@ -542,7 +542,7 @@ fn heading_knobs(level: &str, d: HeadingDefaults) -> Vec<Knob> {
 const COVER_FIELDS: [&str; 5] = ["title", "author", "dates", "sourceUrl", "copyright"];
 
 #[rustfmt::skip]
-fn build_knobs() -> Vec<Knob> {
+fn build_knobs(sections: &SourceSections) -> Vec<Knob> {
     use KnobType::*;
     let mut knobs = vec![
         k("page.size", PaperSize, text("a5"), "Paper size."),
@@ -623,7 +623,7 @@ fn build_knobs() -> Vec<Knob> {
         k("toc.title", String, text(""), "Heading above the table of contents. Empty means no heading."),
 
         k("links.mode", en(&["inline", "footnote", "endnote", "none"]), text("inline"), "How external links are rendered."),
-        k("links.sections", EnumList(regions()), list(&["preamble", "body", "oir", "notes", "supplements"]),
+        k("links.sections", EnumList(sections.regions()), list(&sections.linked_regions()),
             "Parts of the entry where links.mode footnote or endnote applies; links elsewhere (the bibliography, say) stay inline."),
         k("links.color", Color, text("black"), "Link color."),
         k("links.underline", Boolean, Value::Bool(false), "Underline links."),
@@ -647,21 +647,49 @@ fn build_knobs() -> Vec<Knob> {
     knobs
 }
 
-static KNOBS: LazyLock<Vec<Knob>> = LazyLock::new(build_knobs);
-static KNOBS_BY_PATH: LazyLock<HashMap<&'static str, usize>> = LazyLock::new(|| {
-    KNOBS
-        .iter()
-        .enumerate()
-        .map(|(i, knob)| (knob.path.as_str(), i))
-        .collect()
-});
+/// The style table: every option, what it accepts and its default. What `links.sections`
+/// accepts and names by default depends on the sections of the sources in use, so the table
+/// is made for them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Schema {
+    knobs: Vec<Knob>,
+    by_path: HashMap<String, usize>,
+}
+
+impl Schema {
+    pub fn new(sections: &SourceSections) -> Self {
+        let knobs = build_knobs(sections);
+        let by_path = knobs
+            .iter()
+            .enumerate()
+            .map(|(i, knob)| (knob.path.clone(), i))
+            .collect();
+        Self { knobs, by_path }
+    }
+
+    pub fn knobs(&self) -> &[Knob] {
+        &self.knobs
+    }
+
+    pub fn knob(&self, path: &str) -> Option<&Knob> {
+        self.by_path.get(path).map(|&i| &self.knobs[i])
+    }
+}
+
+static GENERIC: LazyLock<Schema> = LazyLock::new(|| Schema::new(&SourceSections::default()));
+
+/// The table for no source at all, whose `links.sections` knows only the parts every
+/// document has. Every option is in it, so it serves where the sections do not matter.
+pub fn generic() -> &'static Schema {
+    &GENERIC
+}
 
 pub fn knobs() -> &'static [Knob] {
-    &KNOBS
+    GENERIC.knobs()
 }
 
 pub fn knob(path: &str) -> Option<&'static Knob> {
-    KNOBS_BY_PATH.get(path).map(|&i| &KNOBS[i])
+    GENERIC.knob(path)
 }
 
 #[cfg(test)]
@@ -887,6 +915,45 @@ mod tests {
         assert_eq!(
             PaperSize.describe(),
             "a named size (a3, a4, a5, a6, b5, letter, legal, halfletter, digest) or \"WIDTHxHEIGHT\" like 5.5inx8.5in"
+        );
+    }
+
+    #[test]
+    fn the_link_sections_are_those_of_the_sources_the_table_is_made_for() {
+        let schema = Schema::new(&SourceSections {
+            keys: vec!["bib", "oir", "notes"],
+            linked: vec!["oir"],
+        });
+        let sections = schema.knob("links.sections").unwrap();
+        assert_eq!(
+            sections.kind.describe(),
+            "a list drawn from: preamble, body, bib, oir, notes, supplements"
+        );
+        assert_eq!(
+            sections.default,
+            Value::List(vec![
+                s("preamble"),
+                s("body"),
+                s("oir"),
+                s("notes"),
+                s("supplements")
+            ])
+        );
+        assert_eq!(
+            sections.kind.coerce(&s("bib")).unwrap(),
+            Value::List(vec![s("bib")])
+        );
+        assert!(
+            knob("links.sections")
+                .unwrap()
+                .kind
+                .coerce(&s("bib"))
+                .is_err()
+        );
+        assert_eq!(
+            schema.knobs().len(),
+            knobs().len(),
+            "the rest of the table is the same"
         );
     }
 

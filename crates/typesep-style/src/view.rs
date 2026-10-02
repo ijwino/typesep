@@ -138,6 +138,7 @@ mod tests {
             preset: Some("halfletter"),
             file: None,
             sets: vec![],
+            schema: None,
         })
         .unwrap()
     }

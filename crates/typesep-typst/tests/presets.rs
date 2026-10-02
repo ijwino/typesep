@@ -63,6 +63,7 @@ fn every_bundled_preset_typesets() {
             preset: Some(preset),
             file: None,
             sets: Vec::new(),
+            schema: None,
         })
         .unwrap_or_else(|err| panic!("{preset}: {err:?}"));
         let rendered = emit_document(

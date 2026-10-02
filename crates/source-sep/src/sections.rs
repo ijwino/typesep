@@ -47,36 +47,42 @@ pub const SECTIONS: [SectionSpec; 6] = [
         label: "Bibliography",
         aliases: &["bib", "bibliography"],
         default: true,
+        linked: false,
     },
     SectionSpec {
         key: "academic",
         label: "Academic Tools",
         aliases: &["academic", "academic-tools"],
         default: false,
+        linked: false,
     },
     SectionSpec {
         key: "oir",
         label: "Other Internet Resources",
         aliases: &["oir", "other-internet-resources"],
         default: true,
+        linked: true,
     },
     SectionSpec {
         key: "related",
         label: "Related Entries",
         aliases: &["related", "related-entries"],
         default: true,
+        linked: false,
     },
     SectionSpec {
         key: "notes",
         label: "",
         aliases: &["notes"],
         default: true,
+        linked: false,
     },
     SectionSpec {
         key: "supplements",
         label: "",
         aliases: &["supplements", "supplement"],
         default: false,
+        linked: false,
     },
 ];
 

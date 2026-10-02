@@ -145,6 +145,7 @@ fn compile(doc: &Doc, sets: &[&str]) -> (String, Result<PagedDocument, String>) 
         preset: Some("halfletter"),
         file: None,
         sets: sets.iter().map(|s| (*s).into()).collect(),
+        schema: None,
     })
     .unwrap();
     let fonts = Fonts::embedded();

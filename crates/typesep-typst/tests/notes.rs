@@ -11,6 +11,7 @@ fn style(sets: &[&str]) -> Style {
         preset: Some("halfletter"),
         file: None,
         sets: sets.iter().map(|s| (*s).into()).collect(),
+        schema: None,
     })
     .unwrap()
 }

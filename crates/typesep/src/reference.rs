@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::process::ExitCode;
 
-use typesep_style::schema::{Knob, knobs};
+use typesep_style::schema::{Knob, Schema};
 use typesep_typst::preamble::{EMITTERS, Emitter, emitter_for, need_matches};
 
 use crate::write_out;
@@ -46,10 +46,11 @@ fn escape_cell(text: &str) -> String {
     text.replace('|', "\\|")
 }
 
-pub fn markdown() -> String {
-    let mut groups: Vec<&'static str> = Vec::new();
-    let mut by_group: HashMap<&'static str, Vec<&'static Knob>> = HashMap::new();
-    for knob in knobs() {
+/// The reference page of `schema`'s options.
+pub fn markdown<'a>(schema: &'a Schema) -> String {
+    let mut groups: Vec<&'a str> = Vec::new();
+    let mut by_group: HashMap<&'a str, Vec<&'a Knob>> = HashMap::new();
+    for knob in schema.knobs() {
         let group = group_of(&knob.path);
         if !by_group.contains_key(group) {
             groups.push(group);
@@ -57,8 +58,8 @@ pub fn markdown() -> String {
         by_group.entry(group).or_default().push(knob);
     }
 
-    let mut usage: HashMap<&'static str, HashMap<&'static str, Usage>> = HashMap::new();
-    for knob in knobs() {
+    let mut usage: HashMap<&'static str, HashMap<&'a str, Usage>> = HashMap::new();
+    for knob in schema.knobs() {
         let group = group_of(&knob.path);
         for emitter in emitter_for(&knob.path) {
             let info = usage
@@ -73,7 +74,7 @@ pub fn markdown() -> String {
         }
     }
 
-    let primary_group = |emitter: &Emitter| -> &'static str {
+    let primary_group = |emitter: &Emitter| -> &'a str {
         let per_group = &usage[emitter.name];
         let mut best = group_of(emitter.needs[0]);
         let mut best_count = per_group.get(best).map_or(0, |u| u.count);
@@ -169,18 +170,19 @@ pub fn markdown() -> String {
     out.join("\n")
 }
 
-pub fn write() -> ExitCode {
-    write_out(&format!("{}\n", markdown()));
+pub fn write(schema: &Schema) -> ExitCode {
+    write_out(&format!("{}\n", markdown(schema)));
     ExitCode::SUCCESS
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use typesep_style::schema::{generic, knobs};
 
     #[test]
     fn every_knob_has_a_row() {
-        let page = markdown();
+        let page = markdown(generic());
         for knob in knobs() {
             let row = page
                 .lines()
@@ -197,7 +199,7 @@ mod tests {
 
     #[test]
     fn every_emitter_an_option_drives_is_listed_once() {
-        let page = markdown();
+        let page = markdown(generic());
         for emitter in EMITTERS {
             let full = page
                 .lines()

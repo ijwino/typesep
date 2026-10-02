@@ -975,6 +975,7 @@ mod tests {
             preset: Some("halfletter"),
             file: None,
             sets: sets.iter().map(|s| (*s).into()).collect(),
+            schema: None,
         })
         .unwrap()
     }

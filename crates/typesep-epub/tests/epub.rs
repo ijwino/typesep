@@ -19,6 +19,7 @@ fn style() -> Style {
         preset: Some("halfletter"),
         file: None,
         sets: vec![],
+        schema: None,
     })
     .unwrap()
 }
@@ -396,6 +397,7 @@ fn epub_text(
         preset: Some("halfletter"),
         file: None,
         sets: sets.iter().map(|s| (*s).into()).collect(),
+        schema: None,
     })
     .unwrap();
     let sections = every_section();
@@ -863,6 +865,7 @@ fn the_notes_the_document_holds_are_in_the_nav_when_they_are_an_appendix() {
         preset: Some("halfletter"),
         file: None,
         sets: vec!["notes.style=appendix".into()],
+        schema: None,
     })
     .unwrap();
     let view = View::new(&style);

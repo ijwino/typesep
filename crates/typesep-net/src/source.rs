@@ -34,6 +34,9 @@ pub struct SectionSpec {
     pub aliases: &'static [&'static str],
     /// Whether `--sections` selects it when not given.
     pub default: bool,
+    /// Whether `links.sections` names it when the style does not set it, so that
+    /// `links.mode` sets its links as notes.
+    pub linked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -177,9 +180,18 @@ impl Registry {
     /// The keys of what `--sections` can name in any source, each once, in the order the
     /// sources list them.
     pub fn section_keys(&self) -> Vec<&'static str> {
+        self.keys_where(|_| true)
+    }
+
+    /// The keys of those that `links.sections` names when the style does not set it.
+    pub fn linked_section_keys(&self) -> Vec<&'static str> {
+        self.keys_where(|spec| spec.linked)
+    }
+
+    fn keys_where(&self, keep: impl Fn(&SectionSpec) -> bool) -> Vec<&'static str> {
         let mut out: Vec<&'static str> = Vec::new();
         for spec in self.iter().flat_map(|source| source.sections()) {
-            if !out.contains(&spec.key) {
+            if keep(spec) && !out.contains(&spec.key) {
                 out.push(spec.key);
             }
         }
@@ -232,18 +244,21 @@ mod tests {
             label: "Bibliography",
             aliases: &["bib", "bibliography"],
             default: true,
+            linked: false,
         },
         SectionSpec {
             key: "notes",
             label: "",
             aliases: &["notes"],
             default: true,
+            linked: false,
         },
         SectionSpec {
             key: "supplements",
             label: "",
             aliases: &["supplements", "supplement"],
             default: false,
+            linked: false,
         },
     ];
 

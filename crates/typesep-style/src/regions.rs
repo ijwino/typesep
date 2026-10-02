@@ -1,27 +1,34 @@
-use std::sync::OnceLock;
-
 /// The parts of every document that come before what a source names: the front matter and
 /// the body.
 const LEADING: [&str; 2] = ["preamble", "body"];
 /// The parts of every document that come after: the notes and the supplements.
 const TRAILING: [&str; 2] = ["notes", "supplements"];
 
-static SOURCE_KEYS: OnceLock<Vec<&'static str>> = OnceLock::new();
-
-/// Names the sections the sources in use can select, so that `links.sections` accepts them.
-/// The style table is built once, the first time a style is read, so this is called before
-/// that; the first call is the one that counts.
-pub fn register(keys: Vec<&'static str>) {
-    let _ = SOURCE_KEYS.set(keys);
+/// What the sources in use add to the style table: the sections they can select, which
+/// `links.sections` may then name, and those of them it names when it is not set.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SourceSections {
+    /// The keys of the sections, in the order the sources list them.
+    pub keys: Vec<&'static str>,
+    /// The keys whose links `links.mode` turns into notes unless the style says otherwise.
+    pub linked: Vec<&'static str>,
 }
 
-/// What `links.sections` can name: the front matter and the body, the sections of the
-/// sources registered, then the notes and supplements, each once.
-pub fn regions() -> Vec<&'static str> {
-    regions_with(SOURCE_KEYS.get().map_or(&[], Vec::as_slice))
+impl SourceSections {
+    /// What `links.sections` can name: the front matter and the body, the sources' sections,
+    /// then the notes and supplements, each once.
+    pub fn regions(&self) -> Vec<&'static str> {
+        in_order(&self.keys)
+    }
+
+    /// What `links.sections` names when it is not set: the front matter, the body, the
+    /// sources' sections that ask for it, the notes and the supplements.
+    pub fn linked_regions(&self) -> Vec<&'static str> {
+        in_order(&self.linked)
+    }
 }
 
-fn regions_with(keys: &[&'static str]) -> Vec<&'static str> {
+fn in_order(keys: &[&'static str]) -> Vec<&'static str> {
     let mut out: Vec<&'static str> = LEADING.to_vec();
     for key in keys {
         if !out.contains(key) && !TRAILING.contains(key) {
@@ -38,13 +45,20 @@ mod tests {
 
     #[test]
     fn the_sources_sections_go_between_the_body_and_the_notes() {
+        let none = SourceSections::default();
+        assert_eq!(none.regions(), ["preamble", "body", "notes", "supplements"]);
+        assert_eq!(none.linked_regions(), none.regions());
+        let some = SourceSections {
+            keys: vec!["bib", "notes", "remarks", "bib", "body", "supplements"],
+            linked: vec!["remarks"],
+        };
         assert_eq!(
-            regions_with(&[]),
-            ["preamble", "body", "notes", "supplements"]
+            some.regions(),
+            ["preamble", "body", "bib", "remarks", "notes", "supplements"]
         );
         assert_eq!(
-            regions_with(&["bib", "notes", "remarks", "bib", "body", "supplements"]),
-            ["preamble", "body", "bib", "remarks", "notes", "supplements"]
+            some.linked_regions(),
+            ["preamble", "body", "remarks", "notes", "supplements"]
         );
     }
 }

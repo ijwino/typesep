@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use super::schema::{Knob, knob, knobs};
+use super::schema::{Knob, Schema, generic, knob, knobs};
 use super::value::Value;
 use super::yaml;
 use typesep_html::js;
@@ -80,9 +80,10 @@ fn parse_structured(text: &str) -> Result<Value, yaml::YamlError> {
     })
 }
 
-pub fn defaults() -> Value {
+/// Every option of `schema` at its default.
+pub fn defaults(schema: &Schema) -> Value {
     let mut style = Value::map();
-    for knob in knobs() {
+    for knob in schema.knobs() {
         style.set_path(&knob.path, knob.default.clone());
     }
     style
@@ -174,6 +175,7 @@ fn unknown_option(verb: &str, p: &str, source: Option<&str>) -> StyleError {
 }
 
 fn apply_layer(
+    schema: &Schema,
     style: &mut Value,
     layer: &Value,
     label: &dyn Fn(&str) -> String,
@@ -188,7 +190,9 @@ fn apply_layer(
         )));
     }
     for (p, raw) in leaves {
-        let knob = knob(&p).ok_or_else(|| unknown_option("unknown", &p, Some(&label(&p))))?;
+        let knob = schema
+            .knob(&p)
+            .ok_or_else(|| unknown_option("unknown", &p, Some(&label(&p))))?;
         let value = knob.kind.merge(style.get_path(&p), &raw);
         match knob.kind.coerce(&value) {
             Ok(typed) => style.set_path(&p, typed),
@@ -284,6 +288,9 @@ pub struct ResolveOptions<'a> {
     pub preset: Option<&'a str>,
     pub file: Option<&'a Path>,
     pub sets: Vec<SetItem>,
+    /// The table the style is read against, made for the sources in use; without one, the
+    /// table for no source at all.
+    pub schema: Option<&'a Schema>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -302,7 +309,8 @@ impl Style {
 }
 
 pub fn resolve_style(opts: ResolveOptions<'_>) -> Result<Style, StyleError> {
-    let mut style = defaults();
+    let schema = opts.schema.unwrap_or(generic());
+    let mut style = defaults(schema);
 
     let mut from_file: Option<(Option<String>, Value, String)> = None;
     if let Some(file) = opts.file {
@@ -319,11 +327,11 @@ pub fn resolve_style(opts: ResolveOptions<'_>) -> Result<Style, StyleError> {
         .map(str::to_owned)
         .or_else(|| from_file.as_ref().and_then(|(p, _, _)| p.clone()))
         .unwrap_or_else(|| DEFAULT_PRESET.to_owned());
-    apply_layer(&mut style, &load_preset(&base)?, &|_| {
+    apply_layer(schema, &mut style, &load_preset(&base)?, &|_| {
         format!("preset {base}")
     })?;
     if let Some((_, layer, shown)) = &from_file {
-        apply_layer(&mut style, layer, &|_| shown.clone())?;
+        apply_layer(schema, &mut style, layer, &|_| shown.clone())?;
     }
 
     let mut origin: Vec<(String, String)> = Vec::new();
@@ -342,7 +350,7 @@ pub fn resolve_style(opts: ResolveOptions<'_>) -> Result<Style, StyleError> {
             Some(entry) => entry.1 = source,
             None => origin.push((path, source)),
         }
-        apply_layer(&mut style, &layer, &|knob_path| {
+        apply_layer(schema, &mut style, &layer, &|knob_path| {
             let mut seen = HashSet::new();
             let sources: Vec<&str> = origin
                 .iter()
@@ -362,26 +370,29 @@ pub fn resolve_style(opts: ResolveOptions<'_>) -> Result<Style, StyleError> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Explained {
+pub enum Explained<'a> {
     Knob {
-        knob: &'static Knob,
+        knob: &'a Knob,
         field: Option<String>,
     },
     Group {
         prefix: String,
-        knobs: Vec<&'static Knob>,
+        knobs: Vec<&'a Knob>,
     },
 }
 
-pub fn explain_path(dotted: &str) -> Result<Explained, StyleError> {
-    if let Some(exact) = knob(dotted) {
+/// The option of `schema` that `dotted` names, the group of options under it, or the option
+/// it is a field of.
+pub fn explain_path<'a>(schema: &'a Schema, dotted: &str) -> Result<Explained<'a>, StyleError> {
+    if let Some(exact) = schema.knob(dotted) {
         return Ok(Explained::Knob {
             knob: exact,
             field: None,
         });
     }
     let prefix = format!("{dotted}.");
-    let under: Vec<&'static Knob> = knobs()
+    let under: Vec<&'a Knob> = schema
+        .knobs()
         .iter()
         .filter(|k| k.path.starts_with(&prefix))
         .collect();
@@ -393,7 +404,7 @@ pub fn explain_path(dotted: &str) -> Result<Explained, StyleError> {
     }
     let segments: Vec<&str> = dotted.split('.').collect();
     for i in (1..segments.len()).rev() {
-        if let Some(k) = knob(&segments[..i].join(".")) {
+        if let Some(k) = schema.knob(&segments[..i].join(".")) {
             return Ok(Explained::Knob {
                 knob: k,
                 field: Some(segments[i..].join(".")),
@@ -404,7 +415,7 @@ pub fn explain_path(dotted: &str) -> Result<Explained, StyleError> {
 }
 
 pub fn explain(dotted: &str) -> Result<&'static Knob, StyleError> {
-    match explain_path(dotted)? {
+    match explain_path(generic(), dotted)? {
         Explained::Knob { knob, .. } => Ok(knob),
         Explained::Group { .. } => Err(unknown_option("no such", dotted, None)),
     }
@@ -421,6 +432,7 @@ mod tests {
             preset,
             file: None,
             sets: sets.iter().map(|s| SetItem::from(*s)).collect(),
+            schema: None,
         })
     }
 
@@ -456,7 +468,7 @@ mod tests {
 
     #[test]
     fn defaults_cover_every_knob() {
-        let style = defaults();
+        let style = defaults(generic());
         for knob in knobs() {
             assert!(
                 style.get_path(&knob.path).is_some(),
@@ -543,6 +555,7 @@ mod tests {
                 .into_iter()
                 .map(SetItem::from)
                 .collect(),
+            schema: None,
         })
         .unwrap_err();
         assert!(
@@ -556,6 +569,7 @@ mod tests {
                 SetItem::from(shorthand_assignments(&[("font", s("EB Garamond"))]).remove(0)),
                 SetItem::from("fonts.main.scale=big"),
             ],
+            schema: None,
         })
         .unwrap_err();
         assert!(
@@ -595,6 +609,7 @@ mod tests {
                 preset: None,
                 file: Some(file),
                 sets: vec![],
+                schema: None,
             })
             .unwrap();
             assert_eq!(style.get("page.twoside"), Some(&Value::Bool(true)));
@@ -603,6 +618,7 @@ mod tests {
                 preset: Some("none"),
                 file: Some(file),
                 sets: vec![],
+                schema: None,
             })
             .unwrap();
             assert_eq!(explicit.get("page.twoside"), Some(&Value::Bool(false)));
@@ -613,6 +629,7 @@ mod tests {
                 preset: None,
                 file: Some(file),
                 sets: vec![],
+                schema: None,
             })
             .unwrap();
             assert_eq!(
@@ -626,6 +643,7 @@ mod tests {
                 preset: None,
                 file: Some(file),
                 sets: vec![],
+                schema: None,
             })
             .unwrap_err();
             assert!(err.0.starts_with("unknown preset \"nope\""), "{err}");
@@ -635,6 +653,7 @@ mod tests {
                 preset: None,
                 file: Some(file),
                 sets: vec![],
+                schema: None,
             })
             .unwrap_err();
             assert!(
@@ -647,6 +666,7 @@ mod tests {
                 preset: Some("none"),
                 file: Some(file),
                 sets: vec![],
+                schema: None,
             })
             .unwrap();
             assert_eq!(style.get("page.size"), Some(&s("a4")), "JSON is YAML");
@@ -656,6 +676,7 @@ mod tests {
                 preset: Some("none"),
                 file: Some(file),
                 sets: vec![],
+                schema: None,
             })
             .unwrap();
             assert_eq!(
@@ -669,6 +690,7 @@ mod tests {
                 preset: Some("none"),
                 file: Some(file),
                 sets: vec![],
+                schema: None,
             })
             .unwrap();
             assert_eq!(
@@ -682,6 +704,7 @@ mod tests {
                 preset: None,
                 file: Some(file),
                 sets: vec![],
+                schema: None,
             })
             .unwrap_err();
             assert!(
@@ -695,7 +718,8 @@ mod tests {
                 resolve_style(ResolveOptions {
                     preset: None,
                     file: Some(file),
-                    sets: vec![]
+                    sets: vec![],
+                    schema: None,
                 })
                 .is_err()
             );
@@ -706,6 +730,7 @@ mod tests {
                     preset: None,
                     file: Some(file),
                     sets: vec![],
+                    schema: None,
                 })
                 .unwrap_err();
                 assert!(
@@ -720,6 +745,7 @@ mod tests {
             preset: None,
             file: Some(Path::new("/nonexistent/style.yaml")),
             sets: vec![],
+            schema: None,
         })
         .unwrap_err();
         assert_eq!(err.0, "style file not found: /nonexistent/style.yaml");
@@ -780,21 +806,21 @@ mod tests {
 
     #[test]
     fn explain_path_resolves_fields_and_groups_and_nearest_ranks_substrings_first() {
-        match explain_path("fonts.main.family").unwrap() {
+        match explain_path(generic(), "fonts.main.family").unwrap() {
             Explained::Knob { knob, field } => {
                 assert_eq!(knob.path, "fonts.main");
                 assert_eq!(field.as_deref(), Some("family"));
             }
             other => panic!("{other:?}"),
         }
-        match explain_path("page.margins").unwrap() {
+        match explain_path(generic(), "page.margins").unwrap() {
             Explained::Group { prefix, knobs } => {
                 assert_eq!(prefix, "page.margins");
                 assert_eq!(knobs.len(), 4);
             }
             other => panic!("{other:?}"),
         }
-        let err = explain_path("page.sizzle").unwrap_err();
+        let err = explain_path(generic(), "page.sizzle").unwrap_err();
         assert_eq!(
             err.0,
             "no such style option \"page.sizzle\"\n  did you mean: page.size?"
