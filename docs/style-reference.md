@@ -216,6 +216,12 @@ Under the hood:
 | `cover.template` | text | `""` | Path to a Typst title page, used when cover.style is "custom". |
 | `cover.fields` | a list drawn from: title, author, dates, sourceUrl, copyright | `["title","author","dates","sourceUrl","copyright"]` | Which fields the simple cover shows, in order. The copyright field is the source, the retrieval date and the copyright line; the terms the entry is read under are on the colophon, the last page, which no setting removes. |
 
+## Bilingual editions
+
+| option | accepts | default | what it does |
+| --- | --- | --- | --- |
+| `parallel.layout` | one of: facing, columns | `"facing"` | How the PDF of a bilingual edition (--parallel) sets its two texts: "facing", the first text on the left-hand pages and the second on the right-hand ones, each spread starting at the same remark; or "columns", the two side by side on every page, a row to each remark. The EPUB always sets them a row to each remark, side by side where the screen is wide enough. |
+
 ## Output
 
 | option | accepts | default | what it does |

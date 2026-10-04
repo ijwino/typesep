@@ -22,6 +22,7 @@ fn title_for(group: &str) -> &str {
         "links" => "Links",
         "notes" => "Notes",
         "cover" => "Cover",
+        "parallel" => "Bilingual editions",
         "output" => "Output",
         "advanced" => "Advanced",
         other => other,

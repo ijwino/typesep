@@ -1314,6 +1314,7 @@ mod tests {
                 "advanced.hooks",
                 "advanced.preamble",
                 "pageFurniture.numbering",
+                "parallel.",
             ];
             if ours.is_empty() && !optional.iter().any(|p| knob.path.starts_with(p)) {
                 panic!("{} drives nothing", knob.path);

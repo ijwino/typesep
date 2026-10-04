@@ -638,6 +638,9 @@ fn build_knobs(sections: &SourceSections) -> Vec<Knob> {
         k("cover.template", String, text(""), "Path to a Typst title page, used when cover.style is \"custom\"."),
         k("cover.fields", EnumList(COVER_FIELDS.to_vec()), list(&COVER_FIELDS), "Which fields the simple cover shows, in order. The copyright field is the source, the retrieval date and the copyright line; the terms the entry is read under are on the colophon, the last page, which no setting removes."),
 
+        k("parallel.layout", en(&["facing", "columns"]), text("facing"),
+            "How the PDF of a bilingual edition (--parallel) sets its two texts: \"facing\", the first text on the left-hand pages and the second on the right-hand ones, each spread starting at the same remark; or \"columns\", the two side by side on every page, a row to each remark. The EPUB always sets them a row to each remark, side by side where the screen is wide enough."),
+
         k("output.bookmarks", Boolean, Value::Bool(true), "Write a PDF outline from the headings."),
 
         k("advanced.documentClass", String, text(""), "Ignored: Typst has no document class. The option is accepted, and a non-empty value is reported as a warning."),
@@ -703,7 +706,7 @@ mod tests {
 
     #[test]
     fn the_knob_table_is_complete_and_its_paths_are_unique() {
-        assert_eq!(knobs().len(), 114);
+        assert_eq!(knobs().len(), 115);
         assert!(knob("notes.maxHeight").is_some());
         assert_eq!(knob("page.size").unwrap().default, s("a5"));
         assert_eq!(knob("headings.h4.style").unwrap().default, s("italic"));

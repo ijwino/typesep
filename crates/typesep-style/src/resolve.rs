@@ -524,6 +524,7 @@ mod tests {
                 "links",
                 "notes",
                 "cover",
+                "parallel",
                 "output",
                 "advanced"
             ]

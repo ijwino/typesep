@@ -189,6 +189,8 @@ cover:
   fields:
     - title
     - author
+parallel:
+  layout: facing
 output:
   bookmarks: true
 advanced:

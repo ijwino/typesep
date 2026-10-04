@@ -188,6 +188,8 @@ cover:
     - dates
     - sourceUrl
     - copyright
+parallel:
+  layout: facing
 output:
   bookmarks: false
 advanced:

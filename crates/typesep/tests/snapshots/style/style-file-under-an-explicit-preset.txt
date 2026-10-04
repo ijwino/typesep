@@ -172,6 +172,8 @@ cover:
     - dates
     - sourceUrl
     - copyright
+parallel:
+  layout: facing
 output:
   bookmarks: true
 advanced:
