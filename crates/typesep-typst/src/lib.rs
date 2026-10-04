@@ -2,6 +2,7 @@ pub mod colors;
 pub mod compile;
 pub mod emit;
 pub mod escape;
+pub mod facing;
 pub mod fonts;
 pub mod images;
 pub mod lang;

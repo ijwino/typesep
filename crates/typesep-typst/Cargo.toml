@@ -21,5 +21,6 @@ time.workspace = true
 regex.workspace = true
 
 [dev-dependencies]
+typesep-compose.workspace = true
 regex.workspace = true
 tempfile.workspace = true

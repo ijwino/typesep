@@ -418,3 +418,124 @@ fn a_bilingual_edition_in_columns_sets_a_row_to_each_remark() {
     );
     assert!(pages(&stderr) > 3, "{stderr}");
 }
+
+#[test]
+fn a_bilingual_edition_on_facing_pages_is_what_dump_typst_prints_and_its_epub_has_rows() {
+    let harness = Harness::new();
+    let stderr = harness.build(
+        "facing",
+        &[
+            "--parallel",
+            "Ein_Heft",
+            "A_Notebook",
+            "--format",
+            "pdf,epub",
+        ],
+    );
+    assert!(
+        stderr.contains("remark 2.4 is longer than a page, so it starts a spread"),
+        "{stderr}"
+    );
+    assert_eq!(
+        pages(&stderr) % 2,
+        0,
+        "a colophon after the last recto: {stderr}"
+    );
+    let typ = harness.typ("facing");
+    assert!(typ.contains("#pagebreak(to: \"odd\")"), "spreads");
+    assert!(!typ.contains("\n#fs-columns("), "no rows of columns");
+    let dump = harness.typesep(&[
+        "dump",
+        "typst",
+        "--source",
+        "lwp",
+        "--parallel",
+        "Ein_Heft",
+        "A_Notebook",
+        "--quiet",
+    ]);
+    assert!(dump.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&dump.stdout),
+        typ,
+        "dump typst prints the source the PDF was made of"
+    );
+
+    let epub = fs::File::open(harness.file("facing", "epub")).unwrap();
+    let mut archive = zip::ZipArchive::new(epub).unwrap();
+    let mut page = String::new();
+    std::io::Read::read_to_string(
+        &mut archive.by_name("OEBPS/entry-1.xhtml").unwrap(),
+        &mut page,
+    )
+    .unwrap();
+    assert!(
+        page.contains("<div class=\"columns\"><div class=\"column\"><div lang=\"de\" xml:lang=\"de\" dir=\"ltr\">"),
+        "the EPUB sets the rows whatever the layout: {page}"
+    );
+    assert_eq!(page.matches("<div class=\"columns\">").count(), 51);
+}
+
+#[test]
+fn a_text_written_right_to_left_and_one_in_hindi_typeset_on_their_own() {
+    let harness = Harness::new();
+    let stderr = harness.build("arabic", &["Daftar", "--format", "pdf,epub"]);
+    assert!(
+        stderr.contains("Typst has no hyphenation patterns for ar, the document's language"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("no font"),
+        "Noto Naskh Arabic has it all: {stderr}"
+    );
+    let typ = harness.typ("arabic");
+    assert!(typ.contains("#set text(lang: \"ar\", dir: rtl, hyphenate: false)"));
+    assert!(typ.contains("#let fs-main = (\"TeX Gyre Termes\", \"Noto Naskh Arabic\")"));
+
+    let stderr = harness.build("hindi", &["Pustika", "--format", "pdf,epub"]);
+    assert!(!stderr.contains("no font"), "{stderr}");
+    assert!(
+        !stderr.contains("hyphenation"),
+        "Typst hyphenates Hindi: {stderr}"
+    );
+    let typ = harness.typ("hindi");
+    assert!(typ.contains("#set text(lang: \"hi\", hyphenate: true)"));
+    assert!(typ.contains("#let fs-main = (\"TeX Gyre Termes\", \"Noto Serif Devanagari\")"));
+}
+
+#[test]
+fn a_bilingual_edition_of_a_text_and_one_written_right_to_left() {
+    let harness = Harness::new();
+    for layout in ["facing", "columns"] {
+        let set = format!("parallel.layout={layout}");
+        harness.build(
+            &format!("arabic-{layout}"),
+            &[
+                "--parallel",
+                "Ein_Heft",
+                "Daftar",
+                "--format",
+                "pdf,epub",
+                "-s",
+                &set,
+            ],
+        );
+        let typ = harness.typ(&format!("arabic-{layout}"));
+        assert!(typ.contains("#set text(lang: \"ar\", hyphenate: false, dir: rtl)"));
+        assert!(
+            typ.contains("#set text(lang: \"de\", dir: ltr)"),
+            "each side in its own direction"
+        );
+    }
+}
+
+#[test]
+fn a_bilingual_edition_takes_two_texts_with_remarks() {
+    let harness = Harness::new();
+    let run = harness.typesep(&["--source", "lwp", "--parallel", "Ein_Heft"]);
+    assert_eq!(run.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&run.stderr)
+            .contains("--parallel takes two works, the one for the left first, and 1 was given")
+    );
+}

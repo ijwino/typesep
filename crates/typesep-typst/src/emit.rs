@@ -94,6 +94,18 @@ struct Ctx<'a> {
     entry_index: usize,
     long_notes: bool,
     helpers: BTreeSet<Helper>,
+    layout: Layout,
+}
+
+/// How the body is laid out: as it flows, or, for a bilingual edition whose texts face each
+/// other, each side of each row on a page of its own with marks to measure it by, or the rows
+/// as the spreads of a plan made from those measures.
+#[derive(Debug, Clone, Default)]
+pub(crate) enum Layout {
+    #[default]
+    Flow,
+    Measure,
+    Facing(crate::facing::Plan),
 }
 
 impl<'a> Ctx<'a> {
@@ -133,6 +145,7 @@ impl<'a> Ctx<'a> {
                 && crate::preamble::note_max_height_pt(view) > 0.0,
             notes_style,
             helpers: BTreeSet::new(),
+            layout: Layout::Flow,
         }
     }
 
@@ -620,6 +633,12 @@ fn lang_scope(
     if body.trim().is_empty() {
         return None;
     }
+    Some(in_scope(&lang_args(lang, dir, ctx), body))
+}
+
+/// What `text()` is set to in a language scope of `lang` and `dir`; nothing when they leave
+/// the text as it is around them.
+fn lang_args(lang: &str, dir: Option<Dir>, ctx: &mut Ctx<'_>) -> Vec<String> {
     let mut args = Vec::new();
     match crate::lang::typst_lang(lang) {
         Some(TypstLang { lang, region }) => {
@@ -645,14 +664,19 @@ fn lang_scope(
         Some(Dir::Ltr) => args.push("dir: ltr".to_owned()),
         None => {}
     }
+    args
+}
+
+/// `body` in a scope that sets `args` of `text()`, or as it is when there are none.
+fn in_scope(args: &[String], body: String) -> String {
     if args.is_empty() {
-        return Some(body);
+        return body;
     }
-    Some(format!(
+    format!(
         "#[\n#set text({})\n\n{}\n]",
         args.join(", "),
         guard_line_start(&body)
-    ))
+    )
 }
 
 /// A paragraph, after `lead` (markup that opens it, as a remark's number) when there is one.
@@ -1681,10 +1705,19 @@ fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
         0
     };
 
-    let mut out = vec![format!(
+    let mut out = Vec::new();
+    match &ctx.layout {
+        Layout::Flow => {}
+        Layout::Measure => out.push(format!("#metadata({})<{MEASURE_TOP}>", side_key(0, 0))),
+        Layout::Facing(_) => out.push(format!(
+            "#pagebreak(to: \"even\", weak: true)\n#metadata({})<{SPREAD_START}>",
+            side_key(0, 0)
+        )),
+    }
+    out.push(format!(
         "#heading(level: 1){}",
         content(&escape_text(&doc.meta.title))
-    )];
+    ));
     if notes_inline && ctx.note_running > 0 {
         out.push(format!("#counter(footnote).update({})", ctx.note_running));
     }
@@ -1704,7 +1737,10 @@ fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
         out.push(toc);
     }
 
-    out.extend(in_region(ctx, "body", |ctx| render_blocks(&doc.body, ctx)));
+    out.extend(in_region(ctx, "body", |ctx| match ctx.layout {
+        Layout::Flow => render_blocks(&doc.body, ctx),
+        _ => facing_body(&doc.body, ctx),
+    }));
 
     let notes_attached: Vec<&Attachment> = doc
         .attachments
@@ -1810,15 +1846,33 @@ fn render_body(docs: &[&Doc], ctx: &mut Ctx<'_>, opts: &EmitOptions<'_>) -> Stri
 
 pub fn emit_document(docs: &[&Doc], style: &Style, opts: EmitOptions<'_>) -> Rendered {
     assert!(!docs.is_empty(), "a group holds at least one entry");
+    if let ([doc], Some(fonts)) = (docs, opts.fonts)
+        && opts.parallel
+        && View::new(style).str("parallel.layout") == "facing"
+    {
+        return crate::facing::emit(doc, style, opts, fonts);
+    }
+    emit_with(docs, style, opts, &Layout::Flow)
+}
+
+/// The Typst source of `docs` with their body laid out as `layout` says.
+pub(crate) fn emit_with(
+    docs: &[&Doc],
+    style: &Style,
+    opts: EmitOptions<'_>,
+    layout: &Layout,
+) -> Rendered {
     let view = View::new(style);
     let merged = docs.len() > 1;
 
     let mut first = Ctx::new(&view, &opts, merged);
+    first.layout = layout.clone();
     let _ = render_body(docs, &mut first, &opts);
     let known = first.seen;
 
     let mut ctx = Ctx::new(&view, &opts, merged);
     ctx.known = known;
+    ctx.layout = layout.clone();
     let body = render_body(docs, &mut ctx, &opts);
 
     let metas: Vec<&Meta> = docs.iter().map(|d| &d.meta).collect();
@@ -1837,14 +1891,191 @@ pub fn emit_document(docs: &[&Doc], style: &Style, opts: EmitOptions<'_>) -> Ren
     let (preamble, mut warnings) = build_preamble(&view, &input, opts.fonts);
     warnings.extend(ctx.warnings);
 
-    let mut source = String::with_capacity(preamble.len() + body.len() + 64);
-    let _ = write!(source, "{preamble}\n{body}\n");
+    let marks = match layout {
+        Layout::Flow => String::new(),
+        _ => FACING_MARKS.to_owned(),
+    };
+    let mut source = String::with_capacity(preamble.len() + marks.len() + body.len() + 64);
+    let _ = write!(source, "{preamble}{marks}\n{body}\n");
     Rendered {
         source,
         figures: ctx.figures,
         warnings,
         formulas: ctx.formulas,
     }
+}
+
+/// The labels of the marks a bilingual edition's facing pages are measured and checked by:
+/// the top of a side of a row on its page of its own, the place before each piece of it and
+/// after the last; the start and end of a side of a spread; each footnote, where it is set and
+/// where it is called; and the footnote area's spacing.
+pub(crate) const MEASURE_TOP: &str = "fs-measure-top";
+pub(crate) const MEASURE_PIECE: &str = "fs-measure-piece";
+pub(crate) const MEASURE_NOTES: &str = "fs-measure-notes";
+pub(crate) const SPREAD_START: &str = "fs-spread";
+pub(crate) const SPREAD_END: &str = "fs-spread-end";
+pub(crate) const FOOTNOTE_AT: &str = "fs-footnote-at";
+
+/// What a document laid out as facing pages adds to the preamble: a mark at each footnote,
+/// which says where the note is set and where it is called from, and the spacing of the
+/// footnote area, which the plan of the spreads counts with.
+const FACING_MARKS: &str = "// ---- facing pages ----\n\
+#show footnote.entry: it => [#context [#metadata(it.note.location().position())<fs-footnote-at>]#it]\n\
+#context [#metadata((clearance: footnote.entry.clearance.to-absolute(), gap: footnote.entry.gap.to-absolute(), separator: measure(footnote.entry.separator).height))<fs-measure-notes>]\n";
+
+/// The key of a side of a row or of a spread in the marks: its index and the side's.
+pub(crate) fn side_key(index: usize, side: usize) -> String {
+    format!("(index: {index}, side: {side})")
+}
+
+/// What a side of a row of a bilingual edition is cut into where a page may end between them:
+/// each of its blocks, and each block of a remark in it, the first set with the remark's
+/// number.
+#[derive(Debug)]
+pub(crate) enum Piece<'b> {
+    Block(&'b Block),
+    Remark {
+        number: &'b str,
+        id: Option<&'b str>,
+        first: &'b [Block],
+    },
+}
+
+impl Piece<'_> {
+    /// The number of the remark the piece opens, if it opens one.
+    pub(crate) fn number(&self) -> Option<&str> {
+        match self {
+            Piece::Remark { number, .. } => Some(number),
+            Piece::Block(_) => None,
+        }
+    }
+}
+
+/// A side of a row: the language scope its blocks are in, if any, and its pieces.
+pub(crate) struct Side<'b> {
+    pub(crate) scope: Option<(&'b str, Option<Dir>)>,
+    pub(crate) pieces: Vec<Piece<'b>>,
+}
+
+/// Side `side` (0 the left, 1 the right) of `row`: a column of the row of two the parallel
+/// pass makes, or, of any other block, the block on the left and nothing on the right.
+pub(crate) fn side_of(row: &Block, side: usize) -> Side<'_> {
+    let blocks: &[Block] = match row {
+        Block::Columns { columns } if columns.len() == 2 => &columns[side],
+        other if side == 0 => std::slice::from_ref(other),
+        _ => &[],
+    };
+    let (scope, blocks) = match blocks {
+        [
+            Block::Lang {
+                lang,
+                dir,
+                children,
+            },
+        ] => (Some((lang.as_str(), *dir)), children.as_slice()),
+        blocks => (None, blocks),
+    };
+    let mut pieces = Vec::new();
+    for block in blocks {
+        match block {
+            Block::Remark {
+                number,
+                id,
+                children,
+            } => {
+                let split = children.len().min(1);
+                pieces.push(Piece::Remark {
+                    number,
+                    id: id.as_deref(),
+                    first: &children[..split],
+                });
+                pieces.extend(children[split..].iter().map(Piece::Block));
+            }
+            other => pieces.push(Piece::Block(other)),
+        }
+    }
+    Side { scope, pieces }
+}
+
+/// The pieces `range` of `side` in its language scope, with `mark(k)` before the `k`th piece
+/// and after the last one.
+fn side_markup(
+    side: &Side<'_>,
+    range: std::ops::Range<usize>,
+    ctx: &mut Ctx<'_>,
+    mark: &dyn Fn(usize) -> Option<String>,
+) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    for k in range.clone() {
+        parts.extend(mark(k));
+        let markup = match &side.pieces[k] {
+            Piece::Block(node) => block(node, ctx),
+            Piece::Remark { number, id, first } => remark(number, *id, first, ctx),
+        };
+        parts.extend(markup);
+    }
+    parts.extend(mark(range.end));
+    if parts.is_empty() {
+        return None;
+    }
+    let args = match side.scope {
+        Some((lang, dir)) => lang_args(lang, dir, ctx),
+        None => Vec::new(),
+    };
+    Some(in_scope(&args, parts.join("\n\n")))
+}
+
+/// The rows of a bilingual edition laid out to be measured, each side of each on a page of its
+/// own, or as the facing pages of the plan made from those measures: the left side of a
+/// spread on a left-hand page, an even one, and its right side on the page opposite.
+fn facing_body(rows: &[Block], ctx: &mut Ctx<'_>) -> Vec<String> {
+    let mut out = Vec::new();
+    match ctx.layout.clone() {
+        Layout::Flow => {}
+        Layout::Measure => {
+            for (index, row) in rows.iter().enumerate() {
+                for side in 0..2 {
+                    if (index, side) != (0, 0) {
+                        out.push(format!(
+                            "#pagebreak(weak: true)\n#metadata({})<{MEASURE_TOP}>",
+                            side_key(index, side)
+                        ));
+                    }
+                    let mark = |piece: usize| {
+                        Some(format!(
+                            "#metadata((index: {index}, side: {side}, piece: {piece}))<{MEASURE_PIECE}>"
+                        ))
+                    };
+                    let half = side_of(row, side);
+                    let count = half.pieces.len();
+                    out.extend(side_markup(&half, 0..count, ctx, &mark));
+                }
+            }
+        }
+        Layout::Facing(plan) => {
+            for (index, spread) in plan.spreads.iter().enumerate() {
+                for (side, parts) in spread.sides.iter().enumerate() {
+                    if (index, side) != (0, 0) {
+                        out.push(format!(
+                            "#pagebreak(to: \"{}\")\n#metadata({})<{SPREAD_START}>",
+                            if side == 0 { "even" } else { "odd" },
+                            side_key(index, side)
+                        ));
+                    }
+                    for part in parts {
+                        let half = side_of(&rows[part.row], side);
+                        out.extend(side_markup(&half, part.from..part.to, ctx, &|_| None));
+                    }
+                    out.push(format!(
+                        "#metadata({})<{SPREAD_END}>",
+                        side_key(index, side)
+                    ));
+                }
+            }
+            out.push("#pagebreak(weak: true)".to_owned());
+        }
+    }
+    out
 }
 
 pub fn length_pt(view: &View<'_>, path: &str) -> String {
