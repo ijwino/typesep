@@ -9,7 +9,7 @@ use regex::Regex;
 /// typesets its entries to PDF and EPUB with its arguments; the harness adds --library, -o,
 /// --format, --keep-typst and -v. The manifest records every invocation, and the test in
 /// crates/typesep/tests/render.rs replays what the manifest says.
-const RUNS: [Run; 6] = [
+const RUNS: [Run; 8] = [
     // Every corpus entry, the default style, every section: what the model snapshots hold.
     Run {
         name: "default",
@@ -85,7 +85,28 @@ const RUNS: [Run; 6] = [
         entries: Entries::Texts,
         args: &["--source", "lwp", "--preset", "ereader"],
     },
+    // The bilingual edition of the German and the English Tractatus on facing pages, which
+    // the plan of the spreads makes, and in columns; none when the corpus lacks either.
+    Run {
+        name: "parallel",
+        entries: Entries::TextsHeld(&[TRACTATUS, TRACTATUS_ENGLISH]),
+        args: &["--source", "lwp", "--parallel=Tractatus"],
+    },
+    Run {
+        name: "parallel-columns",
+        entries: Entries::TextsHeld(&[TRACTATUS, TRACTATUS_ENGLISH]),
+        args: &[
+            "--source",
+            "lwp",
+            "--parallel=Tractatus",
+            "-s",
+            "parallel.layout=columns",
+        ],
+    },
 ];
+
+const TRACTATUS: &str = "Logisch-philosophische_Abhandlung";
+const TRACTATUS_ENGLISH: &str = "Tractatus_Logico-Philosophicus_(English)";
 
 struct Run {
     name: &'static str,
@@ -103,6 +124,10 @@ enum Entries {
     Each(&'static [&'static str]),
     /// These entries, in one invocation (the run's arguments carry the --merge).
     Merged(&'static [&'static str]),
+    /// These Wittgenstein Project texts, in one invocation (the run's arguments carry what
+    /// makes them one document), when the corpus has a model snapshot of every one of them,
+    /// and no invocation when it does not.
+    TextsHeld(&'static [&'static str]),
 }
 
 /// One invocation of the binary, which writes one output.
@@ -291,6 +316,18 @@ fn invocations(models: &Path) -> Vec<Invocation> {
                     run: run.name,
                     args: with(entries, run.args),
                 });
+                continue;
+            }
+            Entries::TextsHeld(held) => {
+                if held
+                    .iter()
+                    .all(|text| texts.iter().any(|known| known == text))
+                {
+                    out.push(Invocation {
+                        run: run.name,
+                        args: with(held, run.args),
+                    });
+                }
                 continue;
             }
         };
