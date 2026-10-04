@@ -127,6 +127,12 @@ pub fn content_opf(
         Some(date) => format!("\n<dc:date>{date}</dc:date>"),
         None => String::new(),
     };
+    // A work has the address it was read from; a document made of two, as a bilingual
+    // edition is, has none of its own, and an empty source is no source.
+    let source = match first.origin.url.as_str() {
+        "" => String::new(),
+        url => format!("\n<dc:source>{}</dc:source>", esc(url)),
+    };
 
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
@@ -135,8 +141,7 @@ pub fn content_opf(
 <dc:identifier id="pub-id">urn:typesep:{}</dc:identifier>
 <dc:title>{}</dc:title>
 <dc:language>{lang}</dc:language>
-<dc:creator>{}</dc:creator>
-<dc:source>{}</dc:source>{date}
+<dc:creator>{}</dc:creator>{source}{date}
 <dc:rights>{}</dc:rights>
 <meta property="dcterms:modified">{}</meta>
 </metadata>
@@ -146,7 +151,6 @@ pub fn content_opf(
         esc(&identifier),
         esc(title),
         esc(author),
-        esc(&first.origin.url),
         esc(&rights),
         now_utc(),
         manifest.join("\n"),

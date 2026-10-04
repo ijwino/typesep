@@ -997,3 +997,16 @@ fn a_language_tag_that_is_markup_is_left_out_and_the_text_kept() {
         assert!(text_of(page).contains(tag), "{tag:?}: {page}");
     }
 }
+
+#[test]
+fn a_document_with_no_address_names_no_source() {
+    let mut entry = doc(vec![para("Text.")]);
+    entry.meta.origin.url = String::new();
+    let opf = &epub_text(&entry, &[], &BTreeMap::new())["OEBPS/content.opf"];
+    assert!(!opf.contains("dc:source"), "{opf}");
+    let with = &epub_text(&doc(vec![para("Text.")]), &[], &BTreeMap::new())["OEBPS/content.opf"];
+    assert!(
+        with.contains("<dc:source>https://plato.stanford.edu/entries/x/</dc:source>"),
+        "{with}"
+    );
+}
