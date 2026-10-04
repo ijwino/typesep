@@ -3225,6 +3225,7 @@ dependencies = [
  "source-lwp",
  "source-sep",
  "tempfile",
+ "typesep-compose",
  "typesep-epub",
  "typesep-html",
  "typesep-model",

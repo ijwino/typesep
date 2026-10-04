@@ -26,6 +26,9 @@ pub struct EmitOptions<'a> {
     pub volume: Option<&'a Meta>,
     pub fonts: Option<&'a Fonts>,
     pub raw_math: &'a BTreeSet<usize>,
+    /// The document is a bilingual edition, whose body is a row of two columns to each pair of
+    /// remarks, as the parallel pass makes it; `parallel.layout` decides how its PDF sets them.
+    pub parallel: bool,
 }
 
 impl Default for EmitOptions<'_> {
@@ -40,6 +43,7 @@ impl Default for EmitOptions<'_> {
             volume: None,
             fonts: None,
             raw_math: &NO_RAW,
+            parallel: false,
         }
     }
 }

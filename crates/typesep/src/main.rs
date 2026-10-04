@@ -9,6 +9,7 @@ use clap::{Arg, ArgAction, ArgMatches, Args, CommandFactory, FromArgMatches, Par
 use output::{file_name_for, job_name_for, output_file};
 use source_lwp::Lwp;
 use source_sep::Sep;
+use typesep_compose::Parallel;
 use typesep_epub::{EpubOptions, build_epub};
 use typesep_model::canonical::model_json;
 use typesep_model::{Doc, Meta};
@@ -225,6 +226,10 @@ struct OutputOptions {
     /// Combine all entries into one document
     #[arg(long, value_name = "name")]
     merge: Option<String>,
+
+    /// Set two texts beside each other, a remark of the first beside the remark of the second with the same id: a bilingual edition, titled TITLE or by the two titles
+    #[arg(long, value_name = "title", num_args = 0..=1, require_equals = true, conflicts_with = "merge")]
+    parallel: Option<Option<String>>,
 
     /// Keep the generated .typ next to the PDF
     #[arg(long)]
@@ -504,6 +509,10 @@ struct DumpTypstOptions {
     /// Combine all entries into one document
     #[arg(long, value_name = "name", help_heading = "Output")]
     merge: Option<String>,
+
+    /// Set two texts beside each other, a remark of the first beside the remark of the second with the same id: a bilingual edition, titled TITLE or by the two titles
+    #[arg(long, value_name = "title", num_args = 0..=1, require_equals = true, conflicts_with = "merge", help_heading = "Output")]
+    parallel: Option<Option<String>>,
 }
 
 impl DumpTypstOptions {
@@ -518,6 +527,7 @@ impl DumpTypstOptions {
                     epub: false,
                 },
                 merge: self.merge.clone(),
+                parallel: self.parallel.clone(),
                 keep_typst: false,
             },
             content: self.content.clone(),
@@ -877,6 +887,47 @@ struct Group<'a> {
     name: String,
     docs: Vec<&'a Doc>,
     volume: Option<Meta>,
+    /// The works the group was made of, whose figures it shows: its documents, or the two
+    /// texts a bilingual edition sets beside each other.
+    works: Vec<&'a Doc>,
+    /// Whether it is a bilingual edition.
+    parallel: bool,
+    /// What making it found to say, said with what typesetting it says.
+    notes: Vec<String>,
+}
+
+impl<'a> Group<'a> {
+    /// One work typeset on its own.
+    fn of(doc: &'a Doc) -> Group<'a> {
+        Group {
+            name: entry_name(doc),
+            docs: vec![doc],
+            volume: None,
+            works: vec![doc],
+            parallel: false,
+            notes: Vec::new(),
+        }
+    }
+}
+
+/// The bilingual edition of `left` and `right` with the name its files take: titled `title`
+/// and named after it, or without one titled by the two titles and named by the two works.
+fn parallel_edition(
+    left: &Doc,
+    right: &Doc,
+    title: Option<&str>,
+) -> Result<(String, Parallel), String> {
+    let (title, name) = match title {
+        Some(title) => (title.to_owned(), title.to_owned()),
+        None => (
+            format!("{} / {}", left.meta.title, right.meta.title),
+            format!("{}+{}", entry_name(left), entry_name(right)),
+        ),
+    };
+    let volume = volume_for(&[left, right], &title);
+    typesep_compose::parallel(left, right, volume)
+        .map(|edition| (name, edition))
+        .map_err(|err| err.to_string())
 }
 
 fn entry_name(doc: &Doc) -> String {
@@ -895,17 +946,13 @@ fn group_entries<'a>(docs: &'a [Doc], merge: Option<&str>) -> Vec<Group<'a>> {
             vec![Group {
                 name: name.to_owned(),
                 volume: Some(volume_for(&docs, name)),
+                works: docs.clone(),
                 docs,
+                parallel: false,
+                notes: Vec::new(),
             }]
         }
-        None => docs
-            .iter()
-            .map(|doc| Group {
-                name: entry_name(doc),
-                docs: vec![doc],
-                volume: None,
-            })
-            .collect(),
+        None => docs.iter().map(Group::of).collect(),
     }
 }
 
@@ -1112,6 +1159,16 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
     if entries.is_empty() {
         return usage_error("no entry given");
     }
+    if cli.output.parallel.is_some() && entries.len() != 2 {
+        return usage_error(format!(
+            "--parallel takes two works, the one for the left first, and {} {} given",
+            entries.len(),
+            if entries.len() == 1 { "was" } else { "were" }
+        ));
+    }
+    if cli.output.parallel.is_some() && cli.follow_related > 0 {
+        return usage_error("--parallel takes two works and follows no related ones");
+    }
     let sections = selected_sections(&cli.content.sections);
 
     let works = match targets_for(
@@ -1203,7 +1260,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
 
     let started = std::time::Instant::now();
     let mut failures: Vec<(String, String)> = Vec::new();
-    let built = if let Some(merge) = cli.output.merge.as_deref() {
+    let built = if cli.output.merge.is_some() || cli.output.parallel.is_some() {
         let mut docs: Vec<Doc> = Vec::new();
         let read = match walk_entries(
             &mut loader,
@@ -1223,9 +1280,37 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
         if loud {
             eprintln!("read    {read} in {:.2} s", started.elapsed().as_secs_f64());
         }
-        for group in group_entries(&docs, Some(merge)) {
+        if let Some(title) = &cli.output.parallel {
+            // An edition of the one text that was read would be no edition at all.
+            if !failures.is_empty() {
+                return report_failures(&failures, read);
+            }
+            let [left, right] = &docs[..] else {
+                return user_error(format!(
+                    "--parallel sets two texts beside each other, and {} were read",
+                    docs.len()
+                ));
+            };
+            let (name, edition) = match parallel_edition(left, right, title.as_deref()) {
+                Ok(made) => made,
+                Err(message) => return user_error(message),
+            };
+            let group = Group {
+                name,
+                docs: vec![&edition.doc],
+                volume: None,
+                works: vec![left, right],
+                parallel: true,
+                notes: edition.warnings.clone(),
+            };
             if let Err(message) = render_group(&group, &ctx) {
                 return user_error(message);
+            }
+        } else {
+            for group in group_entries(&docs, cli.output.merge.as_deref()) {
+                if let Err(message) = render_group(&group, &ctx) {
+                    return user_error(message);
+                }
             }
         }
         read
@@ -1239,12 +1324,7 @@ fn build(cli: &BuildArgs, matches: &ArgMatches, dump_typst: bool) -> ExitCode {
             &walk,
             &mut failures,
             &mut |loaded| {
-                let group = Group {
-                    name: entry_name(&loaded.doc),
-                    docs: vec![&loaded.doc],
-                    volume: None,
-                };
-                render_group(&group, &ctx)?;
+                render_group(&Group::of(&loaded.doc), &ctx)?;
                 built += 1;
                 Ok(())
             },
@@ -1282,13 +1362,13 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
     let quiet = cli.verbosity.quiet;
     let loud = cli.verbosity.verbose;
     let out_dir = &cli.output.out;
-    let mut warnings: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = group.notes.clone();
     let images = if cli.content.no_images {
         Default::default()
     } else {
         let mut collect = |message: String| warnings.push(message);
         group
-            .docs
+            .works
             .iter()
             .flat_map(|doc| {
                 let store = sources()
@@ -1307,6 +1387,7 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
         cover_template: cover_template.as_deref(),
         volume: group.volume.as_ref(),
         fonts: Some(ctx.fonts),
+        parallel: group.parallel,
         ..Default::default()
     };
 
@@ -2184,6 +2265,63 @@ mod tests {
         );
         assert_eq!(volume_for(&[&sep, &lwp], "V").credit, "2 works");
         assert_eq!(volume_for(&[&work("other", "c")], "V").credit, "");
+    }
+
+    #[test]
+    fn a_bilingual_edition_takes_its_title_only_after_an_equals_sign_and_no_merge() {
+        let parallel = |args: &[&str]| {
+            let mut all = vec!["typesep"];
+            all.extend(args);
+            command()
+                .try_get_matches_from(all)
+                .map(|matches| Cli::from_arg_matches(&matches).unwrap().build)
+        };
+        let untitled = parallel(&["--parallel", "A", "B"]).unwrap();
+        assert_eq!(untitled.output.parallel, Some(None));
+        assert_eq!(untitled.entries, ["A", "B"], "a bare word is a work");
+        let titled = parallel(&["--parallel=Zwei Texte", "A", "B"]).unwrap();
+        assert_eq!(titled.output.parallel, Some(Some("Zwei Texte".to_owned())));
+        assert_eq!(parallel(&["A", "B"]).unwrap().output.parallel, None);
+        let both = parallel(&["--parallel", "--merge", "M", "A", "B"]).err();
+        assert_eq!(
+            both.map(|err| err.kind()),
+            Some(clap::error::ErrorKind::ArgumentConflict)
+        );
+    }
+
+    #[test]
+    fn a_bilingual_edition_is_titled_and_named_by_both_works_unless_given_a_title() {
+        let work = |id: &str, title: &str| {
+            let mut doc = Doc::default();
+            doc.meta.id = id.into();
+            doc.meta.title = title.into();
+            doc.meta.origin.source = "lwp".into();
+            doc.body.push(typesep_model::Block::Remark {
+                number: "1".into(),
+                id: Some("1".into()),
+                children: vec![],
+            });
+            doc
+        };
+        let (left, right) = (
+            work("Ein_Heft", "Ein Heft"),
+            work("A_Notebook", "A Notebook"),
+        );
+        let (name, edition) = parallel_edition(&left, &right, None).unwrap();
+        assert_eq!(name, "Ein_Heft+A_Notebook");
+        assert_eq!(edition.doc.meta.title, "Ein Heft / A Notebook");
+        let (name, edition) = parallel_edition(&left, &right, Some("Zwei")).unwrap();
+        assert_eq!(
+            (name.as_str(), edition.doc.meta.title.as_str()),
+            ("Zwei", "Zwei")
+        );
+        let mut prose = work("Prose", "Prose");
+        prose.body.clear();
+        assert!(
+            parallel_edition(&left, &prose, None)
+                .unwrap_err()
+                .starts_with("Prose has no numbered remarks")
+        );
     }
 
     #[test]

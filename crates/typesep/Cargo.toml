@@ -17,6 +17,7 @@ typesep-html.workspace = true
 typesep-net.workspace = true
 typesep-typst.workspace = true
 typesep-epub.workspace = true
+typesep-compose.workspace = true
 source-sep.workspace = true
 source-lwp.workspace = true
 clap.workspace = true
