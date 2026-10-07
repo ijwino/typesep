@@ -59,9 +59,12 @@ pub fn build_epub(
 
     let mut maths = Vec::with_capacity(docs.len());
     let mut ids = Vec::with_capacity(docs.len());
-    for doc in docs {
+    for (index, doc) in docs.iter().enumerate() {
         let mut ctx = Ctx::new(&view, options.images, MathPass::Collect(Vec::new()));
         entry_html(doc, &mut ctx, options.sections);
+        // The formulas of the contents follow the document's, in the order the fill pass
+        // sets them in.
+        nav::nav_items(doc, &chapter_name(index), options.sections, &mut ctx);
         let formulas = ctx.collected();
         ids.push(std::mem::take(&mut ctx.ids));
         let converted = mathml::convert(&formulas, &doc.meta.macros, options.fonts);
@@ -82,6 +85,7 @@ pub fn build_epub(
     let mut ctx = Ctx::new(&view, options.images, MathPass::Collect(Vec::new()));
     let mut chapters = Vec::with_capacity(docs.len());
     let mut documents = Vec::with_capacity(docs.len());
+    let mut nav_math = false;
     for (index, doc) in docs.iter().enumerate() {
         ctx.math = MathPass::Fill {
             items: std::mem::take(&mut maths[index].items),
@@ -89,18 +93,21 @@ pub fn build_epub(
         };
         ctx.ids = std::mem::take(&mut ids[index]);
         ctx.has_math = false;
-        let name = format!("entry-{}.xhtml", index + 1);
+        let name = chapter_name(index);
         let body = entry_html(doc, &mut ctx, options.sections);
         documents.push((
             name.clone(),
             document_xhtml(&doc.meta.title, &doc.meta.lang, doc.meta.dir, &body),
         ));
         let properties = if ctx.has_math { "mathml" } else { "" }.to_owned();
+        ctx.has_math = false;
+        let nav = nav::nav_items(doc, &name, options.sections, &mut ctx);
+        nav_math |= ctx.has_math;
         chapters.push(Chapter {
-            name: name.clone(),
+            name,
             title: doc.meta.title.clone(),
             properties,
-            nav: nav::nav_items(doc, &name, &view, options.sections, &ctx.ids),
+            nav,
         });
     }
     warnings.extend(std::mem::take(&mut ctx.warnings));
@@ -178,7 +185,7 @@ pub fn build_epub(
     container
         .add(
             "OEBPS/content.opf",
-            package::content_opf(docs, &chapters, &ctx.assets, options.volume).as_bytes(),
+            package::content_opf(docs, &chapters, nav_math, &ctx.assets, options.volume).as_bytes(),
         )
         .map_err(zip_error)?;
 
@@ -186,6 +193,10 @@ pub fn build_epub(
         bytes: container.finish().map_err(zip_error)?,
         warnings,
     })
+}
+
+fn chapter_name(index: usize) -> String {
+    format!("entry-{}.xhtml", index + 1)
 }
 
 fn zip_error(err: zip::result::ZipError) -> EpubError {

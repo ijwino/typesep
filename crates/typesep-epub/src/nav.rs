@@ -1,9 +1,8 @@
 use std::collections::BTreeSet;
 
 use typesep_model::{AttachmentKind, Doc, TocItem};
-use typesep_style::View;
 
-use crate::xhtml::{OWN_NOTES_ID, esc, xml_id};
+use crate::xhtml::{Ctx, OWN_NOTES_ID, esc, inline_html, xml_id};
 
 fn render(
     items: &[TocItem],
@@ -11,7 +10,7 @@ fn render(
     max: i64,
     file: &str,
     dropped: &BTreeSet<String>,
-    ids: &BTreeSet<String>,
+    ctx: &mut Ctx,
 ) -> String {
     if depth > max {
         return String::new();
@@ -26,22 +25,22 @@ fn render(
     let lis: String = kept
         .iter()
         .filter_map(|item| {
-            let children = render(&item.children, depth + 1, max, file, dropped, ids);
+            let children = render(&item.children, depth + 1, max, file, dropped, ctx);
             let target = item
                 .href
                 .strip_prefix('#')
                 .map(xml_id)
-                .filter(|id| ids.contains(id));
-            let label = esc(&item.text());
+                .filter(|id| ctx.ids.contains(id));
+            if target.is_none() && children.is_empty() {
+                return None;
+            }
+            let label = inline_html(&item.label, ctx);
             match target {
                 Some(id) => Some(format!(
                     "<li><a href=\"{}\">{label}</a>{children}</li>",
                     esc(&format!("{file}#{id}"))
                 )),
-                None if !children.is_empty() => {
-                    Some(format!("<li><span>{label}</span>{children}</li>"))
-                }
-                None => None,
+                None => Some(format!("<li><span>{label}</span>{children}</li>")),
             }
         })
         .collect();
@@ -51,20 +50,17 @@ fn render(
     format!("<ol>{lis}</ol>")
 }
 
-pub fn nav_items(
-    doc: &Doc,
-    file: &str,
-    view: &View,
-    sections: &BTreeSet<String>,
-    ids: &BTreeSet<String>,
-) -> String {
+/// The lines of the contents of `doc`, set in `file`, as the items of an ordered list. Their
+/// labels are running text, whose formulas `ctx` collects or fills in as it does the
+/// document's.
+pub fn nav_items(doc: &Doc, file: &str, sections: &BTreeSet<String>, ctx: &mut Ctx) -> String {
     let dropped: BTreeSet<String> = doc
         .back
         .iter()
         .filter(|section| !sections.contains(&section.key))
         .map(|section| section.label.to_lowercase())
         .collect();
-    let appendix = view.str("notes.style") == "appendix";
+    let appendix = ctx.view.str("notes.style") == "appendix";
     let listed: Vec<(AttachmentKind, String)> = doc
         .attachments
         .iter()
@@ -75,7 +71,7 @@ pub fn nav_items(
         })
         .filter_map(|(i, a)| {
             let id = xml_id(&format!("a{}--attachment", i + 1));
-            ids.contains(&id).then(|| {
+            ctx.ids.contains(&id).then(|| {
                 (
                     a.kind,
                     format!("<li><a href=\"{file}#{id}\">{}</a></li>", esc(&a.title)),
@@ -84,7 +80,7 @@ pub fn nav_items(
         })
         .collect();
     let mut extras: Vec<String> = listed.iter().map(|(_, item)| item.clone()).collect();
-    if appendix && sections.contains("notes") && ids.contains(OWN_NOTES_ID) {
+    if appendix && sections.contains("notes") && ctx.ids.contains(OWN_NOTES_ID) {
         // The document's own notes are set after the attached notes pages, so they are
         // listed after the last of them.
         let at = listed
@@ -96,7 +92,8 @@ pub fn nav_items(
             format!("<li><a href=\"{file}#{OWN_NOTES_ID}\">Notes</a></li>"),
         );
     }
-    let own = render(&doc.toc, 1, view.int("toc.depth"), file, &dropped, ids);
+    let depth = ctx.view.int("toc.depth");
+    let own = render(&doc.toc, 1, depth, file, &dropped, ctx);
     if own.is_empty() && extras.is_empty() {
         return String::new();
     }

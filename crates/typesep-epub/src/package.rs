@@ -41,9 +41,12 @@ fn now_utc() -> String {
     )
 }
 
+/// The package document; `nav_math` says the navigation document holds MathML, as a
+/// contents line with a formula sets it.
 pub fn content_opf(
     docs: &[&Doc],
     chapters: &[Chapter],
+    nav_math: bool,
     assets: &[(std::path::PathBuf, String)],
     volume: Option<&Meta>,
 ) -> String {
@@ -92,8 +95,11 @@ pub fn content_opf(
         first.id.clone()
     };
 
+    let nav_properties = if nav_math { "nav mathml" } else { "nav" };
     let mut manifest = vec![
-        "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>".to_owned(),
+        format!(
+            "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"{nav_properties}\"/>"
+        ),
         "<item id=\"css\" href=\"style.css\" media-type=\"text/css\"/>".to_owned(),
     ];
     manifest.extend(chapters.iter().enumerate().map(|(i, c)| {

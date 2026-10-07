@@ -7,7 +7,8 @@ use typesep_epub::xhtml::{Ctx, MathPass, entry_html, esc, xml_id};
 use typesep_epub::{EpubError, EpubOptions, build_epub};
 use typesep_model::{
     Align, Attachment, AttachmentKind, Block, Decoration, Dir, Doc, Edges, Figure, Inline, List,
-    Meta, NoteRef, NoteTable, Origin, Rules, Table, TableCell, TocItem, VerseLine,
+    MathMode, Meta, NoteRef, NoteTable, Origin, Rules, Section, Table, TableCell, TocItem,
+    VerseLine,
 };
 use typesep_style::View;
 use typesep_style::{ResolveOptions, Style, resolve_style};
@@ -257,7 +258,7 @@ fn a_contents_entry_with_no_target_is_a_span_or_is_left_out() {
     let sections = every_section();
     let mut ctx = Ctx::new(&view, &images, MathPass::Collect(Vec::new()));
     entry_html(&entry, &mut ctx, &sections);
-    let nav = nav_items(&entry, "entry-1.xhtml", &view, &sections, &ctx.ids);
+    let nav = nav_items(&entry, "entry-1.xhtml", &sections, &mut ctx);
     assert!(
         nav.contains(r##"<a href="entry-1.xhtml#Cla">1. Clarifications</a>"##),
         "{nav}"
@@ -267,6 +268,111 @@ fn a_contents_entry_with_no_target_is_a_span_or_is_left_out() {
         "{nav}"
     );
     assert!(!nav.contains("3. Alone"), "{nav}");
+}
+
+#[test]
+fn a_contents_line_sets_its_formulas_as_its_heading_does() {
+    let belief = |tex: &str| {
+        vec![
+            text("Common "),
+            Inline::Math {
+                mode: MathMode::Inline,
+                tex: tex.to_owned(),
+            },
+            text("-Belief"),
+        ]
+    };
+    let heading = |id: &str, children: Vec<Inline>| Block::Heading {
+        level: 2,
+        id: Some(id.into()),
+        children,
+        outline_only: false,
+    };
+    let mut entry = doc(vec![
+        heading("Coo", belief("p")),
+        heading("Bad", belief(r"\sqrt[]{x}")),
+    ]);
+    entry.back = vec![Section {
+        key: "bib".into(),
+        label: "Bibliography".into(),
+        blocks: vec![
+            heading("Bib", vec![text("Bibliography")]),
+            para("A reference."),
+        ],
+    }];
+    let line = |label: Vec<Inline>, href: &str| TocItem {
+        label,
+        href: href.into(),
+        children: vec![],
+    };
+    entry.toc = vec![
+        line(belief("p"), "#Coo"),
+        line(belief(r"\sqrt[]{x}"), "#Bad"),
+        line(
+            vec![Inline::Emph {
+                children: vec![text("Bibliography")],
+            }],
+            "#Bib",
+        ),
+    ];
+
+    let sections: BTreeSet<String> = ["notes".to_owned()].into();
+    let epub = build(&entry, &[], &BTreeMap::new(), &sections);
+    let members = members(&epub.bytes);
+    let nav = &members["OEBPS/nav.xhtml"];
+    let page = &members["OEBPS/entry-1.xhtml"];
+    let maths = |html: &str| -> Vec<String> {
+        html.split("<math ")
+            .skip(1)
+            .map(|rest| rest.split("</math>").next().unwrap_or("").to_owned())
+            .collect()
+    };
+    let formula = maths(page);
+    assert_eq!(formula.len(), 1, "{page}");
+    assert!(
+        nav.contains(&format!(
+            r#"<a href="entry-1.xhtml#Coo">Common <math {}</math>-Belief</a>"#,
+            formula[0]
+        )),
+        "the formula is the heading's MathML: {nav}"
+    );
+    assert!(
+        nav.contains(r#"<a href="entry-1.xhtml#Bad">Common <code>\sqrt[]{x}</code>-Belief</a>"#),
+        "a formula that cannot be converted is its TeX, as in the heading: {nav}"
+    );
+    assert!(page.contains(r"<code>\sqrt[]{x}</code>"), "{page}");
+    assert!(
+        epub.warnings
+            .iter()
+            .any(|w| w.starts_with("maths left as LaTeX")),
+        "{:?}",
+        epub.warnings
+    );
+    assert!(!nav.contains("Bibliography"), "{nav}");
+    assert!(
+        members["OEBPS/content.opf"].contains(
+            r#"href="nav.xhtml" media-type="application/xhtml+xml" properties="nav mathml"/>"#
+        ),
+        "{}",
+        members["OEBPS/content.opf"]
+    );
+
+    let members = epub_text(&entry, &[], &BTreeMap::new());
+    assert!(
+        members["OEBPS/nav.xhtml"]
+            .contains(r#"<li><a href="entry-1.xhtml#Bib"><em>Bibliography</em></a></li>"#),
+        "{}",
+        members["OEBPS/nav.xhtml"]
+    );
+
+    entry.toc = vec![line(vec![text("Common Belief")], "#Coo")];
+    let members = epub_text(&entry, &[], &BTreeMap::new());
+    assert!(
+        members["OEBPS/content.opf"]
+            .contains(r#"media-type="application/xhtml+xml" properties="nav"/>"#),
+        "no maths in the contents, none said: {}",
+        members["OEBPS/content.opf"]
+    );
 }
 
 #[test]
@@ -395,6 +501,15 @@ fn epub_text(
     sets: &[&str],
     images: &BTreeMap<String, Image>,
 ) -> BTreeMap<String, String> {
+    members(&build(doc, sets, images, &every_section()).bytes)
+}
+
+fn build(
+    doc: &Doc,
+    sets: &[&str],
+    images: &BTreeMap<String, Image>,
+    sections: &BTreeSet<String>,
+) -> typesep_epub::Epub {
     let style = resolve_style(ResolveOptions {
         preset: Some("halfletter"),
         file: None,
@@ -403,20 +518,23 @@ fn epub_text(
         default_preset: None,
     })
     .unwrap();
-    let sections = every_section();
     let fonts = Fonts::embedded();
-    let epub = build_epub(
+    build_epub(
         &[doc],
         &style,
         EpubOptions {
-            sections: &sections,
+            sections,
             images,
             volume: None,
             fonts: &fonts,
         },
     )
-    .unwrap();
-    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(epub.bytes)).unwrap();
+    .unwrap()
+}
+
+/// The text of each member of an EPUB that is text, by its name.
+fn members(bytes: &[u8]) -> BTreeMap<String, String> {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
     let mut out = BTreeMap::new();
     for index in 0..archive.len() {
         let mut member = archive.by_index(index).unwrap();
@@ -916,7 +1034,7 @@ fn the_notes_the_document_holds_are_in_the_nav_when_they_are_an_appendix() {
     let mut ctx = Ctx::new(&view, &images, MathPass::Collect(Vec::new()));
     let html = entry_html(&entry, &mut ctx, &sections);
     assert!(!html.contains("notes-appendix"), "{html}");
-    let nav = nav_items(&entry, "entry-1.xhtml", &view, &sections, &ctx.ids);
+    let nav = nav_items(&entry, "entry-1.xhtml", &sections, &mut ctx);
     assert!(
         !nav.contains("notes-appendix"),
         "without the notes, no entry for them: {nav}"
