@@ -377,13 +377,6 @@ fn printed_chars(docs: &[&Doc], volume: Option<&Meta>, view: &View<'_>) -> BTree
         }
     }
     for doc in docs {
-        fn toc(items: &[TocItem], add: &mut impl FnMut(&str)) {
-            for item in items {
-                add(&item.text());
-                toc(&item.children, add);
-            }
-        }
-        toc(&doc.toc, &mut add);
         for attachment in &doc.attachments {
             add(&attachment.title);
         }
@@ -392,7 +385,7 @@ fn printed_chars(docs: &[&Doc], volume: Option<&Meta>, view: &View<'_>) -> BTree
                 add(number);
             }
         });
-        walk_doc(doc, &mut |node| match node {
+        let mut visit = |node: &Inline| match node {
             Inline::Text { value } => add(value),
             Inline::Math { tex, .. } => add(tex),
             Inline::NoteRef(note) => add(&note.label),
@@ -402,7 +395,15 @@ fn printed_chars(docs: &[&Doc], volume: Option<&Meta>, view: &View<'_>) -> BTree
                 ..
             } if addresses => add(href),
             _ => {}
-        });
+        };
+        fn toc(items: &[TocItem], visit: &mut impl FnMut(&Inline)) {
+            for item in items {
+                walk_inlines(&item.label, visit);
+                toc(&item.children, visit);
+            }
+        }
+        toc(&doc.toc, &mut visit);
+        walk_doc(doc, &mut visit);
     }
     chars
 }
@@ -1510,7 +1511,7 @@ fn toc_items(
     let entries: Vec<String> = kept
         .iter()
         .map(|item| {
-            let label = escape_text(&item.text());
+            let label = inlines(&item.label, ctx);
             let target = item
                 .href
                 .strip_prefix('#')
