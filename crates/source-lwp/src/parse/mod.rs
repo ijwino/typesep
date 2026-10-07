@@ -8,7 +8,7 @@ use scraper::{ElementRef, Html};
 use serde_json::Value;
 use typesep_html::dom;
 use typesep_html::js;
-use typesep_html::walk::{Walker, plain, trim_inline};
+use typesep_html::walk::{Walker, trim_inline};
 use typesep_model::{
     Block, Contributor, Dir, Doc, EntryLinks, Inline, Meta, NoteTable, Origin, TocItem,
 };
@@ -75,7 +75,7 @@ fn notes(walker: &mut Walker, rules: &mut LwpRules, root: ElementRef<'_>) -> Not
 }
 
 /// The contents: the headings of the text, those for the outline only among them, a level
-/// two heading's level three ones under it.
+/// two heading's level three ones under it, each line its heading's running text.
 fn contents(body: &[Block]) -> Vec<TocItem> {
     let mut out: Vec<TocItem> = Vec::new();
     for block in body {
@@ -89,9 +89,7 @@ fn contents(body: &[Block]) -> Vec<TocItem> {
             continue;
         };
         let item = TocItem {
-            label: vec![Inline::Text {
-                value: js::collapse_spaces(js::trim(&plain(children))),
-            }],
+            label: contents_label(children),
             href: format!("#{id}"),
             children: Vec::new(),
         };
@@ -101,6 +99,61 @@ fn contents(body: &[Block]) -> Vec<TocItem> {
         }
     }
     out
+}
+
+/// A heading's running text as a line of the contents holds it: without its note references,
+/// anchors, figures and margin notes, with the text of a link in place of the link, since the
+/// line is a link itself, and its white space collapsed and left out at either end.
+fn contents_label(children: &[Inline]) -> Vec<Inline> {
+    fn strip(nodes: &[Inline]) -> Vec<Inline> {
+        let mut out: Vec<Inline> = Vec::new();
+        for node in nodes {
+            match node {
+                Inline::NoteRef(_)
+                | Inline::Anchor { .. }
+                | Inline::Figure(_)
+                | Inline::MarginNote { .. } => {}
+                Inline::Link { children, .. } => {
+                    for node in strip(children) {
+                        push(&mut out, node);
+                    }
+                }
+                Inline::Break => push(&mut out, Inline::Text { value: " ".into() }),
+                _ => {
+                    let mut node = node.clone();
+                    if let Inline::Emph { children }
+                    | Inline::Strong { children }
+                    | Inline::Sub { children }
+                    | Inline::Sup { children }
+                    | Inline::Code { children }
+                    | Inline::Spaced { children }
+                    | Inline::SmallCaps { children }
+                    | Inline::Decorated { children, .. } = &mut node
+                    {
+                        *children = strip(children);
+                    }
+                    push(&mut out, node);
+                }
+            }
+        }
+        for node in &mut out {
+            if let Inline::Text { value } = node {
+                *value = js::collapse_spaces(value);
+            }
+        }
+        out
+    }
+    /// Text runs on into the text before it, so that its white space collapses with that one's.
+    fn push(out: &mut Vec<Inline>, node: Inline) {
+        if let (Some(Inline::Text { value: before }), Inline::Text { value }) =
+            (out.last_mut(), &node)
+        {
+            before.push_str(value);
+            return;
+        }
+        out.push(node);
+    }
+    trim_inline(strip(children))
 }
 
 /// The document a page's API answer holds, or why there is none: the API's error, or an
@@ -336,6 +389,82 @@ NewPP limit report
         assert_eq!(
             doc.warnings,
             ["check marks (the project's notes on its own text) left out"]
+        );
+    }
+
+    #[test]
+    fn a_contents_line_is_its_headings_text_without_its_notes_anchors_and_links() {
+        let text = |value: &str| Inline::Text {
+            value: value.into(),
+        };
+        let heading = |level: u8, id: &str, children: Vec<Inline>| Block::Heading {
+            level,
+            id: Some(id.into()),
+            children,
+            outline_only: false,
+        };
+        let body = [
+            heading(
+                2,
+                "Vorwort",
+                vec![
+                    Inline::Anchor { id: "top".into() },
+                    text(" Ein "),
+                    Inline::Spaced {
+                        children: vec![text("gesperrtes")],
+                    },
+                    text("  Vorwort"),
+                    Inline::NoteRef(typesep_model::NoteRef {
+                        id: "cite_note-1".into(),
+                        label: "1".into(),
+                        href: "#cite_note-1".into(),
+                        ref_id: None,
+                    }),
+                    Inline::MarginNote {
+                        children: vec![text("MS 101")],
+                    },
+                    text(" "),
+                ],
+            ),
+            heading(
+                3,
+                "Teil",
+                vec![
+                    Inline::Link {
+                        href: "#1".into(),
+                        internal: true,
+                        children: vec![
+                            Inline::Emph {
+                                children: vec![text("Erster")],
+                            },
+                            text(" Teil,"),
+                        ],
+                    },
+                    Inline::Break,
+                    text("\nmit Bild"),
+                    Inline::Figure(typesep_model::Figure {
+                        src: "bild.png".into(),
+                        alt: String::new(),
+                        ebook_src: None,
+                        width_px: None,
+                        caption: None,
+                        id: None,
+                        inline: Some(true),
+                    }),
+                ],
+            ),
+        ];
+        assert_eq!(
+            serde_json::to_value(contents(&body)).unwrap(),
+            json!([{
+                "label": [t("Ein "), { "type": "spaced", "children": [t("gesperrtes")] }, t(" Vorwort")],
+                "href": "#Vorwort",
+                "children": [{
+                    "label": [{ "type": "emph", "children": [t("Erster")] }, t(" Teil, mit Bild")],
+                    "href": "#Teil",
+                    "children": []
+                }]
+            }])
         );
     }
 
