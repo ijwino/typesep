@@ -9,7 +9,9 @@ use serde_json::Value;
 use typesep_html::dom;
 use typesep_html::js;
 use typesep_html::walk::{Walker, plain, trim_inline};
-use typesep_model::{Block, Contributor, Dir, Doc, EntryLinks, Meta, NoteTable, Origin, TocItem};
+use typesep_model::{
+    Block, Contributor, Dir, Doc, EntryLinks, Inline, Meta, NoteTable, Origin, TocItem,
+};
 
 use crate::address::{normalize_title, page_url};
 use rules::{LwpRules, tidy_blocks};
@@ -87,7 +89,9 @@ fn contents(body: &[Block]) -> Vec<TocItem> {
             continue;
         };
         let item = TocItem {
-            text: js::collapse_spaces(js::trim(&plain(children))),
+            label: vec![Inline::Text {
+                value: js::collapse_spaces(js::trim(&plain(children))),
+            }],
             href: format!("#{id}"),
             children: Vec::new(),
         };
@@ -324,8 +328,8 @@ NewPP limit report
         assert_eq!(
             serde_json::to_value(&doc.toc).unwrap(),
             json!([
-                { "text": "Widmung", "href": "#Widmung", "children": [] },
-                { "text": "Vorwort", "href": "#Vorwort", "children": [] }
+                { "label": [t("Widmung")], "href": "#Widmung", "children": [] },
+                { "label": [t("Vorwort")], "href": "#Vorwort", "children": [] }
             ]),
             "the contents list the headings, those for the outline only too"
         );

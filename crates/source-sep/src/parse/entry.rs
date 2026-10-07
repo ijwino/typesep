@@ -463,7 +463,11 @@ fn parse_toc<'a>(lists: impl Iterator<Item = ElementRef<'a>>) -> Vec<TocItem> {
                 text = js::trim(&own).to_owned();
             }
             items.push(TocItem {
-                text,
+                label: if text.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![self::text(text)]
+                },
                 href: a.and_then(|a| a.attr("href")).unwrap_or("").to_owned(),
                 children: nested
                     .map(|ul| parse_toc(std::iter::once(ul)))
@@ -479,7 +483,7 @@ fn parse_toc<'a>(lists: impl Iterator<Item = ElementRef<'a>>) -> Vec<TocItem> {
 fn without_items_named(items: Vec<TocItem>, labels: &BTreeSet<String>) -> Vec<TocItem> {
     items
         .into_iter()
-        .filter(|item| !labels.contains(&item.text.trim().to_lowercase()))
+        .filter(|item| !labels.contains(&item.text().trim().to_lowercase()))
         .map(|item| TocItem {
             children: without_items_named(item.children, labels),
             ..item
@@ -1515,8 +1519,12 @@ mod tests {
         assert_eq!(
             value(&d.toc),
             json!([
-                { "text": "1. A", "href": "#A", "children": [{ "text": "1.1 A1", "href": "#A1", "children": [] }] },
-                { "text": "Plain", "href": "", "children": [{ "text": "x", "href": "", "children": [] }] }
+                { "label": [{ "type": "text", "value": "1. A" }], "href": "#A", "children": [
+                    { "label": [{ "type": "text", "value": "1.1 A1" }], "href": "#A1", "children": [] }
+                ] },
+                { "label": [{ "type": "text", "value": "Plain" }], "href": "", "children": [
+                    { "label": [{ "type": "text", "value": "x" }], "href": "", "children": [] }
+                ] }
             ])
         );
     }
@@ -1531,7 +1539,7 @@ mod tests {
              <div id=\"main-text\"><h2 id=\"S\">S</h2></div><div id=\"bibliography\"><p>Ref</p></div>\
              <div id=\"other-internet-resources\"><p>Web</p></div><div id=\"related-entries\"><p>See</p></div>",
         );
-        let texts = |items: &[TocItem]| items.iter().map(|i| i.text.clone()).collect::<Vec<_>>();
+        let texts = |items: &[TocItem]| items.iter().map(TocItem::text).collect::<Vec<_>>();
         assert_eq!(
             texts(&d.toc),
             [

@@ -341,11 +341,44 @@ pub struct Meta {
     pub macros: MacroTable,
 }
 
+/// A line of the contents. Its label is running text as a heading's is, without what only
+/// running text holds: no note references, anchors or figures, and no links, since the line
+/// is a link itself.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TocItem {
-    pub text: String,
+    pub label: Vec<Inline>,
     pub href: String,
     pub children: Vec<TocItem>,
+}
+
+impl TocItem {
+    /// The line's text, its markup left out and a formula as its TeX: what the line is
+    /// matched by against the names of the end matter a document leaves out.
+    pub fn text(&self) -> String {
+        fn text_of(nodes: &[Inline], out: &mut String) {
+            for node in nodes {
+                match node {
+                    Inline::Text { value } => out.push_str(value),
+                    Inline::Math { tex, .. } => out.push_str(tex.trim()),
+                    Inline::Break => out.push(' '),
+                    Inline::Anchor { .. } | Inline::Figure(_) | Inline::NoteRef(_) => {}
+                    Inline::Emph { children }
+                    | Inline::Strong { children }
+                    | Inline::Sub { children }
+                    | Inline::Sup { children }
+                    | Inline::Code { children }
+                    | Inline::Link { children, .. }
+                    | Inline::Spaced { children }
+                    | Inline::SmallCaps { children }
+                    | Inline::Decorated { children, .. }
+                    | Inline::MarginNote { children } => text_of(children, out),
+                }
+            }
+        }
+        let mut out = String::new();
+        text_of(&self.label, &mut out);
+        out
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -518,6 +551,17 @@ mod tests {
                     ],
                 },
             ],
+            toc: vec![TocItem {
+                label: vec![
+                    text("1. "),
+                    Inline::Math {
+                        mode: MathMode::Inline,
+                        tex: "p".into(),
+                    },
+                ],
+                href: "#s1".into(),
+                children: vec![],
+            }],
             back: vec![Section {
                 key: "related".into(),
                 label: "Related Entries".into(),
@@ -541,7 +585,7 @@ mod tests {
                 "macros": { "opL": { "body": "\\mathbin{L}", "args": 0 } }
             },
             "front": [],
-            "toc": [],
+            "toc": [{ "label": [{ "type": "text", "value": "1. " }, { "type": "math", "mode": "inline", "tex": "p" }], "href": "#s1", "children": [] }],
             "body": [
                 { "type": "heading", "level": 2, "id": null, "children": [{ "type": "text", "value": "Heading" }] },
                 { "type": "para", "align": "center", "children": [
@@ -807,5 +851,25 @@ mod tests {
             json!({ "type": "rule" })
         );
         assert!(serde_json::from_value::<Value>(json!(null)).is_ok());
+    }
+
+    #[test]
+    fn a_contents_line_reads_as_its_text_markup_left_out() {
+        let item = TocItem {
+            label: vec![
+                text("5. Common "),
+                Inline::Math {
+                    mode: MathMode::Inline,
+                    tex: " p ".into(),
+                },
+                text("-Belief in "),
+                Inline::Emph {
+                    children: vec![text("Games")],
+                },
+            ],
+            href: "#5".into(),
+            children: vec![],
+        };
+        assert_eq!(item.text(), "5. Common p-Belief in Games");
     }
 }

@@ -18,7 +18,7 @@ fn render(
     }
     let kept: Vec<&TocItem> = items
         .iter()
-        .filter(|item| !dropped.contains(&item.text.trim().to_lowercase()))
+        .filter(|item| !dropped.contains(&item.text().trim().to_lowercase()))
         .collect();
     if kept.is_empty() {
         return String::new();
@@ -32,7 +32,7 @@ fn render(
                 .strip_prefix('#')
                 .map(xml_id)
                 .filter(|id| ids.contains(id));
-            let label = esc(&item.text);
+            let label = esc(&item.text());
             match target {
                 Some(id) => Some(format!(
                     "<li><a href=\"{}\">{label}</a>{children}</li>",

@@ -639,7 +639,7 @@ mod tests {
             );
             doc.notes.insert("cite_note-1".into(), vec![para(words)]);
             doc.toc.push(TocItem {
-                text: words.into(),
+                label: vec![text(words)],
                 href: "#1".into(),
                 children: Vec::new(),
             });

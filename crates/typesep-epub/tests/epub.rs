@@ -232,21 +232,21 @@ fn a_contents_entry_with_no_target_is_a_span_or_is_left_out() {
     }]);
     entry.toc = vec![
         TocItem {
-            text: "1. Clarifications".into(),
+            label: vec![text("1. Clarifications")],
             href: "#Cla".into(),
             children: vec![],
         },
         TocItem {
-            text: "2. Related Principles".into(),
+            label: vec![text("2. Related Principles")],
             href: "#RelPri".into(),
             children: vec![TocItem {
-                text: "2.1 One".into(),
+                label: vec![text("2.1 One")],
                 href: "#Cla".into(),
                 children: vec![],
             }],
         },
         TocItem {
-            text: "3. Alone".into(),
+            label: vec![text("3. Alone")],
             href: "#Gone".into(),
             children: vec![],
         },
@@ -549,7 +549,7 @@ fn every_construct(value: &str) -> Vec<Block> {
 fn with_every_construct(value: &str) -> Doc {
     let mut entry = doc(every_construct(value));
     entry.toc = vec![TocItem {
-        text: value.to_owned(),
+        label: vec![text(value)],
         href: "#hidden".into(),
         children: vec![],
     }];

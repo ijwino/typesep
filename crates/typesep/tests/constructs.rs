@@ -355,17 +355,17 @@ fn fixture() -> Doc {
         },
         toc: vec![
             TocItem {
-                text: "First Part: Remarks".to_owned(),
+                label: vec![text("First Part: Remarks")],
                 href: "#first".to_owned(),
                 children: vec![],
             },
             TocItem {
-                text: "A Heading Only the Outline Shows".to_owned(),
+                label: vec![text("A Heading Only the Outline Shows")],
                 href: "#hidden".to_owned(),
                 children: vec![],
             },
             TocItem {
-                text: "Second Part".to_owned(),
+                label: vec![text("Second Part")],
                 href: "#after".to_owned(),
                 children: vec![],
             },

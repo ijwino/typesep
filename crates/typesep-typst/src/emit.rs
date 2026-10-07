@@ -379,7 +379,7 @@ fn printed_chars(docs: &[&Doc], volume: Option<&Meta>, view: &View<'_>) -> BTree
     for doc in docs {
         fn toc(items: &[TocItem], add: &mut impl FnMut(&str)) {
             for item in items {
-                add(&item.text);
+                add(&item.text());
                 toc(&item.children, add);
             }
         }
@@ -1502,7 +1502,7 @@ fn toc_items(
     }
     let kept: Vec<&TocItem> = items
         .iter()
-        .filter(|item| !dropped.contains(&item.text.trim().to_lowercase()))
+        .filter(|item| !dropped.contains(&item.text().trim().to_lowercase()))
         .collect();
     if kept.is_empty() {
         return None;
@@ -1510,7 +1510,7 @@ fn toc_items(
     let entries: Vec<String> = kept
         .iter()
         .map(|item| {
-            let label = escape_text(&item.text);
+            let label = escape_text(&item.text());
             let target = item
                 .href
                 .strip_prefix('#')
