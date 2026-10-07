@@ -183,7 +183,7 @@ pub fn parse_entry(html: &str, opts: &ParseOptions) -> Doc {
         },
     );
     let front = blocks_of_all(&mut ctx, dom::select(&document, &PREAMBLE));
-    let toc = parse_toc(dom::select(&document, &TOC_LISTS));
+    let toc = parse_toc(&mut ctx, dom::select(&document, &TOC_LISTS));
     let body = blocks_of_all(&mut ctx, dom::select(&document, &MAIN_TEXT));
     let links = collect_entry_links(&document, opts.source_url);
 
@@ -445,37 +445,61 @@ fn collect_entry_links(document: &Html, base: &str) -> EntryLinks {
     out
 }
 
-fn parse_toc<'a>(lists: impl Iterator<Item = ElementRef<'a>>) -> Vec<TocItem> {
+fn parse_toc<'a>(ctx: &mut Ctx, lists: impl Iterator<Item = ElementRef<'a>>) -> Vec<TocItem> {
     let mut items = Vec::new();
     for ul in lists {
         for li in dom::children_named(*ul, &["li"]) {
             let a = dom::children_named(*li, &["a"]).next();
             let nested = dom::children_named(*li, &["ul"]).next();
-            let mut text = a
-                .map(|a| js::trim(&dom::text_of(*a)).to_owned())
+            let mut label = a
+                .map(|a| contents_label(inline(ctx, *a)))
                 .unwrap_or_default();
-            if text.is_empty() {
-                let own: String = li
+            if label.is_empty() {
+                let own = li
                     .children()
-                    .filter(|c| !ElementRef::wrap(*c).is_some_and(|el| dom::is(&el, "ul")))
-                    .map(dom::text_of)
-                    .collect();
-                text = js::trim(&own).to_owned();
+                    .filter(|c| !ElementRef::wrap(*c).is_some_and(|el| dom::is(&el, "ul")));
+                label = contents_label(inline_of(ctx, own));
             }
             items.push(TocItem {
-                label: if text.is_empty() {
-                    Vec::new()
-                } else {
-                    vec![self::text(text)]
-                },
+                label,
                 href: a.and_then(|a| a.attr("href")).unwrap_or("").to_owned(),
                 children: nested
-                    .map(|ul| parse_toc(std::iter::once(ul)))
+                    .map(|ul| parse_toc(ctx, std::iter::once(ul)))
                     .unwrap_or_default(),
             });
         }
     }
     items
+}
+
+/// Running text as a line of the contents holds it, white space at either end left out:
+/// without note references, anchors or figures, and with the text of a link in place of
+/// the link, since the line is a link itself.
+fn contents_label(nodes: Vec<Inline>) -> Vec<Inline> {
+    fn strip(nodes: Vec<Inline>) -> Vec<Inline> {
+        let mut out = Vec::new();
+        for mut node in nodes {
+            match &mut node {
+                Inline::NoteRef(_) | Inline::Anchor { .. } | Inline::Figure(_) => {}
+                Inline::Link { children, .. } => out.extend(strip(std::mem::take(children))),
+                Inline::Emph { children }
+                | Inline::Strong { children }
+                | Inline::Sub { children }
+                | Inline::Sup { children }
+                | Inline::Code { children }
+                | Inline::Spaced { children }
+                | Inline::SmallCaps { children }
+                | Inline::Decorated { children, .. }
+                | Inline::MarginNote { children } => {
+                    *children = strip(std::mem::take(children));
+                    out.push(node);
+                }
+                Inline::Text { .. } | Inline::Math { .. } | Inline::Break => out.push(node),
+            }
+        }
+        out
+    }
+    trim_inline(strip(nodes))
 }
 
 /// The contents without the lines that name end matter the page does not have, at any
@@ -1526,6 +1550,54 @@ mod tests {
                     { "label": [{ "type": "text", "value": "x" }], "href": "", "children": [] }
                 ] }
             ])
+        );
+    }
+
+    #[test]
+    fn a_contents_line_is_running_text_as_a_heading_is() {
+        let d = entry(
+            "<div id=\"toc\"><ul><li><a href=\"#Coo\"> 5. Common \\(p\\)-Belief in <em>Games</em> </a></li>\
+             <li><a href=\"#Sub\"><span id=\"x\">Subsystems</span> of <b>Z</b><sub>2</sub><img src=\"z.png\" alt=\"z\"/></a></li>\
+             <li>Unlinked<sup><a href=\"notes.html#note-1\">[1]</a></sup><ul><li><a href=\"#U1\">U1</a></li></ul></li>\
+             <li><a href=\"#Aca\"><em>Academic</em> Tools</a></li></ul></div>\
+             <div id=\"main-text\"><h2 id=\"Coo\">5. Common \\(p\\)-Belief in <em>Games</em></h2></div>",
+        );
+        assert_eq!(
+            value(&d.toc[0].label),
+            json!([
+                { "type": "text", "value": "5. Common " },
+                { "type": "math", "mode": "inline", "tex": "p" },
+                { "type": "text", "value": "-Belief in " },
+                { "type": "emph", "children": [{ "type": "text", "value": "Games" }] }
+            ]),
+            "a formula is maths and emphasis stays"
+        );
+        let Block::Heading { children, .. } = &d.body[0] else {
+            panic!("a heading: {:?}", d.body[0]);
+        };
+        assert_eq!(
+            &d.toc[0].label, children,
+            "as in the heading the line names"
+        );
+        assert_eq!(
+            value(&d.toc[1].label),
+            json!([
+                { "type": "text", "value": "Subsystems" },
+                { "type": "text", "value": " of " },
+                { "type": "strong", "children": [{ "type": "text", "value": "Z" }] },
+                { "type": "sub", "children": [{ "type": "text", "value": "2" }] }
+            ]),
+            "no anchor and no figure"
+        );
+        assert_eq!(
+            value(&d.toc[2].label),
+            json!([{ "type": "text", "value": "Unlinked" }]),
+            "a line with no link is its own text, without a note reference"
+        );
+        assert_eq!(
+            d.toc.len(),
+            3,
+            "the academic tools are matched by their text, markup and all, and left out"
         );
     }
 
