@@ -15,6 +15,10 @@ const DERIVED: &str = ".derived";
 /// last, so that one cut short still shows.
 const LEGACY_MARKS: [&str; 3] = ["archives", "entries", META];
 
+/// The file at a library's top that one migration at a time holds locked. It is a dot file, so
+/// a migration leaves it where it is and nothing that reads the library lists it.
+const MIGRATION_LOCK: &str = ".migrate.lock";
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PlaceError {
     #[error("{0} is not a URL")]
@@ -249,27 +253,25 @@ impl Library {
     /// cut short leaves one at the top, and the next run moves what is left. A name that is at
     /// the top and in `<dir>/<source>` both is refused before anything moves: that is a
     /// library of each layout in one directory, not an interrupted migration.
+    ///
+    /// A typesep that finds the old layout holds `<dir>/.migrate.lock` locked while it looks
+    /// again and moves, so of several run at once one migrates and the others find it done.
+    /// Without the lock each would rename what it saw, and on Windows a rename of a name
+    /// another has just moved can succeed as well, so both would say they moved it. The lock
+    /// file stays: one deleted while another typesep waits on it would let a third lock a new
+    /// one at the same time. Where the file system cannot lock, the migration goes on without.
     pub fn migrate_legacy(
         &self,
         source: &str,
         sources: &[&str],
     ) -> Result<Option<Migrated>, LibraryError> {
-        let names = match fs::read_dir(&self.dir) {
-            Ok(entries) => entries
-                .map(|entry| entry.map_err(|e| io_error(&self.dir, e)))
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .filter_map(|entry| entry.file_name().into_string().ok())
-                .collect::<Vec<String>>(),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(io_error(&self.dir, e)),
-        };
-        if !names
-            .iter()
-            .any(|name| LEGACY_MARKS.contains(&name.as_str()))
-        {
+        if self.legacy_names()?.is_none() {
             return Ok(None);
         }
+        let _lock = self.lock_for_migration()?;
+        let Some(names) = self.legacy_names()? else {
+            return Ok(None);
+        };
 
         let into = self.dir.join(source);
         match fs::symlink_metadata(&into) {
@@ -286,8 +288,9 @@ impl Library {
         let last = |name: &String| LEGACY_MARKS.iter().position(|mark| mark == name);
         moving.sort_by(|a, b| last(a).cmp(&last(b)).then_with(|| a.cmp(b)));
 
-        // The new place is looked at first: another typesep migrating at the same time moves a
-        // name in one rename, so a name seen in both places is one there twice.
+        // The new place is looked at first: another typesep migrating at the same time, where
+        // there is no lock, moves a name in one rename, so a name seen in both places is one
+        // there twice.
         let both: Vec<&str> = moving
             .iter()
             .filter(|name| exists(&into.join(name)) && exists(&self.dir.join(name)))
@@ -324,6 +327,43 @@ impl Library {
         }
         sync_dir(&self.dir);
         Ok((!moved.is_empty()).then_some(Migrated { into, moved }))
+    }
+
+    /// The names at the library's top when one of them marks the old layout; none when no
+    /// name does, or there is no library.
+    fn legacy_names(&self) -> Result<Option<Vec<String>>, LibraryError> {
+        let names = match fs::read_dir(&self.dir) {
+            Ok(entries) => entries
+                .map(|entry| entry.map_err(|e| io_error(&self.dir, e)))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .collect::<Vec<String>>(),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(io_error(&self.dir, e)),
+        };
+        let marked = names
+            .iter()
+            .any(|name| LEGACY_MARKS.contains(&name.as_str()));
+        Ok(marked.then_some(names))
+    }
+
+    /// The migration lock, held until the file is dropped; the file alone where the file
+    /// system cannot lock.
+    fn lock_for_migration(&self) -> Result<fs::File, LibraryError> {
+        let path = self.dir.join(MIGRATION_LOCK);
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .map_err(|e| io_error(&path, e))?;
+        match file.lock() {
+            Ok(()) => Ok(file),
+            Err(e) if e.kind() == io::ErrorKind::Unsupported => Ok(file),
+            Err(e) => Err(io_error(&path, e)),
+        }
     }
 
     fn both_layouts(&self, source: &str, names: &[&str]) -> LibraryError {
@@ -689,6 +729,13 @@ mod tests {
         out
     }
 
+    /// `listing` with the empty lock file a typesep that found the old layout leaves at the top.
+    fn with_the_lock(mut listing: Vec<(String, Option<String>)>) -> Vec<(String, Option<String>)> {
+        listing.push((MIGRATION_LOCK.to_owned(), Some(String::new())));
+        listing.sort();
+        listing
+    }
+
     const LEGACY: [(&str, &str); 9] = [
         (
             "meta.json",
@@ -716,7 +763,7 @@ mod tests {
             .filter(|(name, _)| stays(name))
             .collect();
         seed(target.path(), &kept);
-        listing(target.path())
+        with_the_lock(listing(target.path()))
     }
 
     #[test]
@@ -791,6 +838,23 @@ mod tests {
             !absent.exists(),
             "nothing is created for a library that is not there"
         );
+    }
+
+    #[test]
+    fn the_lock_an_earlier_migration_left_is_no_mark_of_the_old_layout() {
+        let temp = tempfile::tempdir().unwrap();
+        seed(
+            temp.path(),
+            &[(MIGRATION_LOCK, ""), ("sep/meta.json", "{}"), ("info/", "")],
+        );
+        let before = listing(temp.path());
+        assert_eq!(
+            Library::new(temp.path())
+                .migrate_legacy("sep", &["sep"])
+                .unwrap(),
+            None
+        );
+        assert_eq!(listing(temp.path()), before);
     }
 
     #[test]
@@ -885,7 +949,7 @@ mod tests {
                 temp.path().display()
             )
         );
-        assert_eq!(listing(temp.path()), before, "nothing moved");
+        assert_eq!(listing(temp.path()), with_the_lock(before), "nothing moved");
 
         let file = tempfile::tempdir().unwrap();
         seed(
@@ -897,6 +961,6 @@ mod tests {
             .migrate_legacy("sep", &["sep"])
             .unwrap_err();
         assert!(matches!(err, LibraryError::NotADirectory { .. }), "{err}");
-        assert_eq!(listing(file.path()), before);
+        assert_eq!(listing(file.path()), with_the_lock(before));
     }
 }
