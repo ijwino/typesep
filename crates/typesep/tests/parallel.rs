@@ -521,8 +521,15 @@ fn the_source_the_pdf_and_the_epub_take_one_name_whatever_its_script() {
             file.display()
         );
     }
-    assert!(
-        stderr.contains(&format!("source in out/named/{name}.typ")),
+    // The path is shown relative to the working directory where it can be, which depends on
+    // the platform's separators and its temporary directory; its file name does not.
+    let kept = stderr
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix("source in "))
+        .unwrap_or_else(|| panic!("the source kept is named: {stderr}"));
+    assert_eq!(
+        Path::new(kept).file_name().unwrap().to_string_lossy(),
+        format!("{name}.typ"),
         "{stderr}"
     );
 }
