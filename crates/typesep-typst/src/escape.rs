@@ -106,9 +106,11 @@ pub fn safe_id(id: &str) -> String {
         .collect()
 }
 
+/// `url` as it is printed: readable, its characters beyond ASCII unescaped as a browser shows
+/// them, with a break allowed after each of its separators.
 pub fn url_for_display(url: &str) -> String {
     let mut out = String::with_capacity(url.len() * 2);
-    for c in url.chars() {
+    for c in typesep_model::url::readable(url).chars() {
         out.push(c);
         if matches!(c, '/' | '.' | '-' | '_' | '?' | '&' | '=' | '#' | '%' | ':') {
             out.push('\u{200b}');

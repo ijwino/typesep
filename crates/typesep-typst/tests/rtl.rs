@@ -1,4 +1,4 @@
-use typesep_model::{Block, Dir, Doc, Inline, List, Meta};
+use typesep_model::{Block, Dir, Doc, Inline, List, Meta, Origin};
 use typesep_style::{ResolveOptions, resolve_style};
 use typesep_typst::{EmitOptions, Fonts, TypesetWorld, emit_document};
 use typst::layout::{Frame, FrameItem};
@@ -297,5 +297,53 @@ fn a_language_scope_sets_its_blocks_in_its_language_and_direction() {
     assert!(
         (end - (396.0 - 38.88 - 11.955)).abs() < 1.0,
         "Arabic starts on the right, indented there as a paragraph after another: {end}"
+    );
+}
+
+/// An address of a page titled "علم", "knowledge", as it is written, escaped.
+const ARABIC_ADDRESS: &str = "https://x.test/%D8%B9%D9%84%D9%85";
+
+/// Where the address's scheme and its Arabic are set on `page`, which holds no other Arabic.
+fn address_parts(document: &PagedDocument, page: usize) -> (f64, f64) {
+    let runs = page_runs(document, page);
+    let &(scheme, _, _, _) = find(&runs, "https");
+    let &(arabic, _, _, _) = find(&runs, "علم");
+    (scheme, arabic)
+}
+
+#[test]
+fn an_address_is_printed_readable_and_left_to_right_in_text_written_right_to_left() {
+    let mut doc = arabic_doc(vec![para(vec![
+        text(ARABIC),
+        Inline::Link {
+            href: ARABIC_ADDRESS.to_owned(),
+            internal: false,
+            children: vec![text("كلمة")],
+        },
+    ])]);
+    doc.meta.origin = Origin {
+        url: ARABIC_ADDRESS.to_owned(),
+        ..Origin::default()
+    };
+    let (source, _, document) = compile(&doc, &["cover.style=simple", "links.mode=footnote"]);
+    assert!(
+        source.contains(&format!(
+            "#link(\"{ARABIC_ADDRESS}\")[#text(dir: ltr)[#fs-code[https:\u{200b}/\u{200b}/\u{200b}x.\u{200b}test/\u{200b}علم]]]"
+        )),
+        "the title page shows the address readable, and links to it as it is: {source}"
+    );
+    assert!(
+        source.contains("#text(dir: ltr)[#fs-code[https:\\//x\\.test/علم]]"),
+        "a link's footnote shows its address readable: {source}"
+    );
+    let (scheme, arabic) = address_parts(&document, 0);
+    assert!(
+        scheme < arabic,
+        "the title page's address starts on the left: {scheme} before {arabic}"
+    );
+    let (scheme, arabic) = address_parts(&document, 1);
+    assert!(
+        scheme < arabic,
+        "the footnote's address starts on the left: {scheme} before {arabic}"
     );
 }

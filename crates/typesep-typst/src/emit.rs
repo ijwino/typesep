@@ -90,6 +90,8 @@ struct Ctx<'a> {
     warned: HashSet<String>,
     links_mode: String,
     links_sections: Vec<String>,
+    /// The direction of the text being set: the document's, or a language scope's.
+    dir: Dir,
     notes_style: String,
     entry_index: usize,
     long_notes: bool,
@@ -140,6 +142,7 @@ impl<'a> Ctx<'a> {
             warned: HashSet::new(),
             links_mode: view.str("links.mode"),
             links_sections: view.list("links.sections"),
+            dir: Dir::Ltr,
             entry_index: 0,
             long_notes: notes_style == "footnote"
                 && crate::preamble::note_max_height_pt(view) > 0.0,
@@ -357,7 +360,7 @@ fn printed_chars(docs: &[&Doc], volume: Option<&Meta>, view: &View<'_>) -> BTree
             &meta.credit,
             &meta.origin.publisher,
             &meta.origin.edition_label,
-            &meta.origin.url,
+            &typesep_model::url::readable(&meta.origin.url),
             &meta.rights.statement,
             &meta.rights.terms,
         ] {
@@ -366,7 +369,7 @@ fn printed_chars(docs: &[&Doc], volume: Option<&Meta>, view: &View<'_>) -> BTree
         for notice in &meta.rights.notices {
             add(&notice.text);
             if let Some(link) = &notice.link {
-                add(&link.label);
+                add(&typesep_model::url::readable(&link.label));
             }
         }
     }
@@ -393,7 +396,7 @@ fn printed_chars(docs: &[&Doc], volume: Option<&Meta>, view: &View<'_>) -> BTree
                 href,
                 internal: false,
                 ..
-            } if addresses => add(href),
+            } if addresses => add(&typesep_model::url::readable(href)),
             _ => {}
         };
         fn toc(items: &[TocItem], visit: &mut impl FnMut(&Inline)) {
@@ -630,7 +633,10 @@ fn lang_scope(
     children: &[Block],
     ctx: &mut Ctx<'_>,
 ) -> Option<String> {
+    let around = ctx.dir;
+    ctx.dir = dir.unwrap_or(around);
     let body = joined(children, ctx);
+    ctx.dir = around;
     if body.trim().is_empty() {
         return None;
     }
@@ -1395,7 +1401,8 @@ fn link(href: &str, internal: bool, children: &[Inline], ctx: &mut Ctx<'_>) -> S
     match mode.as_str() {
         "none" => text,
         "footnote" => {
-            let body = format!("#fs-code{}", content(&escape_code(href)));
+            let shown = escape_code(&typesep_model::url::readable(href));
+            let body = left_to_right(format!("#fs-code{}", content(&shown)), ctx);
             format!(
                 "#link({url}){}{}",
                 content(&text),
@@ -1403,10 +1410,20 @@ fn link(href: &str, internal: bool, children: &[Inline], ctx: &mut Ctx<'_>) -> S
             )
         }
         "endnote" => {
-            let body = format!("#fs-code[{}]", escape_code(href));
+            let shown = escape_code(&typesep_model::url::readable(href));
+            let body = left_to_right(format!("#fs-code[{shown}]"), ctx);
             format!("{text}{}", note(NoteKind::Endnote, None, &body, ctx))
         }
         _ => format!("#link({url}){}", content(&text)),
+    }
+}
+
+/// `markup`, an address, set left to right where the text around it is written right to left,
+/// so it reads from its scheme on, whatever script its characters are in.
+fn left_to_right(markup: String, ctx: &Ctx<'_>) -> String {
+    match ctx.dir {
+        Dir::Rtl => format!("#text(dir: ltr){}", content(&markup)),
+        Dir::Ltr => markup,
     }
 }
 
@@ -1635,10 +1652,12 @@ fn simple_cover(meta: &Meta, retrieved: &str, ctx: &mut Ctx<'_>) -> String {
             "sourceUrl" => {
                 let url = &meta.origin.url;
                 if !url.is_empty() {
+                    let shown =
+                        format!("#fs-code{}", content(&crate::escape::url_for_display(url)));
                     add!(format!(
-                        "#text(size: 0.9em)[#link({})[#fs-code{}]]",
+                        "#text(size: 0.9em)[#link({}){}]",
                         escape_string(url),
-                        content(&crate::escape::url_for_display(url))
+                        content(&left_to_right(shown, ctx))
                     ));
                 }
             }
@@ -1814,6 +1833,7 @@ fn render_body(docs: &[&Doc], ctx: &mut Ctx<'_>, opts: &EmitOptions<'_>) -> Stri
     if start_at != 1 {
         out.push(format!("#counter(page).update({start_at})"));
     }
+    ctx.dir = meta.dir;
     let cover_style = view.str("cover.style");
     if cover_style == "custom" {
         if let Some(template) = opts.cover_template {
