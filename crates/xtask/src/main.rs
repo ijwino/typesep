@@ -119,7 +119,7 @@ struct Parity {
 
 const DEFAULT_EXEC: &str = "target/debug/typesep dump model {} --sections all --quiet";
 
-/// The corpus is thirty SEP entries and three texts of the Wittgenstein Project, and the models
+/// The corpus is thirty SEP entries and six texts of the Wittgenstein Project, and the models
 /// they parse to. It is not in this repository: the entries are copyright their authors and the
 /// SEP's Terms of Use grant no right to redistribute them, and the project's texts are under
 /// licences of their own, so it lives outside the tree. `TYPESEP_TEST_CORPUS` names the

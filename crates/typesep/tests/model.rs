@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The corpus is thirty SEP entries and three texts of the Wittgenstein Project, and what they
+/// The corpus is thirty SEP entries and six texts of the Wittgenstein Project, and what they
 /// parse and typeset to. It is not in this repository: the entries are copyright their authors
 /// and the SEP's Terms of Use grant no right to redistribute them, and the project's texts are
 /// under licences of their own, which differ from text to text, so the corpus lives outside the
@@ -155,7 +155,7 @@ fn every_model_is_what_the_parser_still_produces() {
         let (count, lwp) = check_models(&texts, &library, &["--source", "lwp"]);
         assert_eq!(
             count,
-            3,
+            6,
             "a model snapshot has gone missing from {}",
             texts.display()
         );
