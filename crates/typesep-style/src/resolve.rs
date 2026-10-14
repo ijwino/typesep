@@ -46,15 +46,16 @@ pub fn preset_text(name: &str) -> Option<&'static str> {
 pub fn preset_catalog() -> Vec<(&'static str, String)> {
     PRESETS
         .iter()
-        .map(|(name, text)| {
-            let summary = text
-                .split('\n')
-                .find(|l| l.starts_with('#'))
-                .map(|l| js::trim_start(&l[1..]).to_owned())
-                .unwrap_or_default();
-            (*name, summary)
-        })
+        .map(|(name, text)| (*name, summary(text)))
         .collect()
+}
+
+/// A preset's first comment line, its line ending left off whether it is LF or CRLF.
+fn summary(text: &str) -> String {
+    text.lines()
+        .find(|l| l.starts_with('#'))
+        .map(|l| js::trim_start(&l[1..]).to_owned())
+        .unwrap_or_default()
 }
 
 fn available() -> String {
@@ -498,6 +499,14 @@ mod tests {
             catalog[4],
             ("halfletter", "Half-letter (5.5x8.5in) single-column book page, Times-like serif, justified and hyphenated.".to_owned())
         );
+    }
+
+    #[test]
+    fn a_summary_leaves_off_a_crlf_line_ending() {
+        let text = "# Half-letter book page.\r\n# More.\r\npage:\r\n  size: halfletter\r\n";
+        assert_eq!(summary(text), "Half-letter book page.");
+        assert_eq!(summary("page: {}\n#A comment\n"), "A comment");
+        assert_eq!(summary("page: {}\n"), "");
     }
 
     #[test]
