@@ -6,8 +6,9 @@ use std::process::{Command, Output};
 /// would be into a library of their own: a German one and its English translation, whose
 /// remarks carry the same ids but two (one only the German has, one only the English), an
 /// Arabic one written right to left and a Hindi one. The binary typesets the bilingual edition
-/// of the first two in both layouts and as an EPUB, and the others on their own. With
-/// `TYPESEP_FIXTURE_OUT` naming a directory, the outputs are left there for a look.
+/// of the first two in both layouts and as an EPUB, and the others on their own and as one
+/// volume named in their scripts. With `TYPESEP_FIXTURE_OUT` naming a directory, the outputs
+/// are left there for a look.
 const OUT: &str = "TYPESEP_FIXTURE_OUT";
 
 const SITE: &str = "https://www.wittgensteinproject.org/w/index.php/";
@@ -501,6 +502,29 @@ fn a_text_written_right_to_left_and_one_in_hindi_typeset_on_their_own() {
     let typ = harness.typ("hindi");
     assert!(typ.contains("#set text(lang: \"hi\", hyphenate: true)"));
     assert!(typ.contains("#let fs-main = (\"TeX Gyre Termes\", \"Noto Serif Devanagari\")"));
+}
+
+#[test]
+fn the_source_the_pdf_and_the_epub_take_one_name_whatever_its_script() {
+    let harness = Harness::new();
+    let name = "Daftar (دفتر) और पुस्तिका";
+    let stderr = harness.build(
+        "named",
+        &["--merge", name, "Daftar", "Pustika", "--format", "pdf,epub"],
+    );
+    for extension in ["typ", "pdf", "epub"] {
+        let file = harness.file("named", extension);
+        assert_eq!(
+            file.file_stem().unwrap().to_string_lossy(),
+            name,
+            "{}",
+            file.display()
+        );
+    }
+    assert!(
+        stderr.contains(&format!("source in out/named/{name}.typ")),
+        "{stderr}"
+    );
 }
 
 #[test]

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, ArgAction, ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
-use output::{file_name_for, job_name_for, output_file};
+use output::{file_name_for, output_file};
 use source_lwp::Lwp;
 use source_sep::Sep;
 use typesep_compose::Parallel;
@@ -1413,8 +1413,7 @@ fn render_group(group: &Group, ctx: &RenderCtx<'_>) -> Result<(), String> {
         return Ok(());
     }
 
-    let job = job_name_for(&group.name);
-    let source_file = out_dir.join(format!("{job}.typ"));
+    let source_file = output_file(&group.name, "typ", out_dir);
     let keep = cli.output.keep_typst;
 
     if !quiet {

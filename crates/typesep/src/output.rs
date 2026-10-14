@@ -5,7 +5,6 @@ use typesep_html::lazy_regex;
 lazy_regex!(UNSAFE_RE = r#"[\\/:*?"<>|\x00-\x1f]+"#.to_owned());
 lazy_regex!(SPACES_RE = format!("{}+", typesep_html::js::WS));
 lazy_regex!(EDGE_RE = r"^[-. ]+|[-. ]+$".to_owned());
-lazy_regex!(JOB_RE = r"[^A-Za-z0-9._-]+".to_owned());
 
 pub fn file_name_for(name: &str) -> String {
     let cleaned = UNSAFE_RE.replace_all(name, "-");
@@ -16,10 +15,6 @@ pub fn file_name_for(name: &str) -> String {
     } else {
         cleaned.into_owned()
     }
-}
-
-pub fn job_name_for(name: &str) -> String {
-    JOB_RE.replace_all(&file_name_for(name), "-").into_owned()
 }
 
 pub fn output_file(name: &str, kind: &str, out_dir: &Path) -> PathBuf {
@@ -38,14 +33,22 @@ mod tests {
             "a-b- c",
             "the trailing dash is trimmed with the dots and spaces"
         );
-        assert_eq!(job_name_for("a/b: c?"), "a-b--c");
         assert_eq!(file_name_for("  ..dots..  "), "dots");
         assert_eq!(file_name_for("///"), "untitled");
         assert_eq!(
             file_name_for("Philosophy   of  Logic"),
             "Philosophy of Logic"
         );
-        assert_eq!(job_name_for("Philosophy of Logic"), "Philosophy-of-Logic");
+        assert_eq!(
+            file_name_for("Tractatus_Logico-Philosophicus_(English)"),
+            "Tractatus_Logico-Philosophicus_(English)",
+            "parentheses are safe"
+        );
+        assert_eq!(
+            file_name_for("محاضرة_في_علم_الأخلاق"),
+            "محاضرة_في_علم_الأخلاق",
+            "so is any script"
+        );
         assert_eq!(
             output_file("Logic: I", "pdf", Path::new("out")),
             PathBuf::from("out/Logic- I.pdf")
