@@ -2,6 +2,7 @@
 //! API that renders it, the titles the user names them by, and the places in the library
 //! they are kept at.
 
+use typesep_model::url::percent_decode;
 use typesep_net::library::{Place, PlaceError, is_safe_segment};
 use url::Url;
 
@@ -49,26 +50,6 @@ fn percent_encode(text: &str, keep: impl Fn(char) -> bool) -> String {
         }
     }
     out
-}
-
-fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        let hex = |at: usize| bytes.get(at).and_then(|b| (*b as char).to_digit(16));
-        match (bytes[i], hex(i + 1), hex(i + 2)) {
-            (b'%', Some(high), Some(low)) => {
-                out.push((high * 16 + low) as u8);
-                i += 3;
-            }
-            (byte, _, _) => {
-                out.push(byte);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,4 +1,5 @@
 pub mod canonical;
+pub mod url;
 pub mod walk;
 
 use std::collections::BTreeMap;
