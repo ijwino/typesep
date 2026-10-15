@@ -118,12 +118,15 @@ pub struct CheckArgs {
     pub library: PathBuf,
     pub out: PathBuf,
     pub snapshots: PathBuf,
+    /// Where the library is copied for the binary to read; removed when the check is done.
+    pub copy: PathBuf,
     pub all: bool,
     pub keep: bool,
     pub verbose: bool,
 }
 
 pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
+    let args = reading_a_copy(args);
     let targets = match targets(&args.binary, &args.library, &args.snapshots, args.all) {
         Ok(targets) => targets,
         Err(message) => super::fail(&message),
@@ -229,6 +232,7 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
     if !args.keep && args.out.is_dir() {
         let _ = fs::remove_dir_all(&args.out);
     }
+    let _ = fs::remove_dir_all(&args.copy);
     exit_code(rendered == targets.len())
 }
 
@@ -242,6 +246,7 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
              unzip -d tools /tmp/epubcheck.zip",
         ),
     };
+    let args = reading_a_copy(args);
     let targets = match targets(&args.binary, &args.library, &args.snapshots, args.all) {
         Ok(targets) => targets,
         Err(message) => super::fail(&message),
@@ -372,7 +377,35 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
     if !args.keep && args.out.exists() {
         let _ = fs::remove_dir_all(&args.out);
     }
+    let _ = fs::remove_dir_all(&args.copy);
     exit_code(passing == targets.len())
+}
+
+/// The arguments with the library replaced by a fresh copy of it at `args.copy`. A build
+/// writes to the library it reads: it records the work it read, fetches a figure the library
+/// lacks, and moves a library of an older layout into the present one. So the check reads the
+/// copy, and the corpus stays as the render snapshots were made from it.
+fn reading_a_copy(args: CheckArgs) -> CheckArgs {
+    let library = args
+        .library
+        .canonicalize()
+        .unwrap_or_else(|err| super::fail(&format!("{}: {err}", args.library.display())));
+    if args.copy.starts_with(&library) {
+        super::fail(&format!(
+            "the library would be copied into itself, at {}",
+            args.copy.display()
+        ));
+    }
+    if args.copy.exists() {
+        fs::remove_dir_all(&args.copy)
+            .unwrap_or_else(|err| super::fail(&format!("{}: {err}", args.copy.display())));
+    }
+    super::copy_dir(&library, &args.copy)
+        .unwrap_or_else(|err| super::fail(&format!("copying {}: {err}", library.display())));
+    CheckArgs {
+        library: args.copy.clone(),
+        ..args
+    }
 }
 
 fn report_notes(notes: &Tally) {

@@ -16,13 +16,14 @@ use std::process::Command;
 ///   files under `sep/.derived/`; `lwp/` holds the Wittgenstein Project's, each text's API
 ///   answer at `lwp/pages/<title>/parse.json` (the title written so it can name a directory,
 ///   every character but letters, digits and `-_(),` as `%` and its hex) and its images at
-///   their paths on the site, `lwp/images/<a>/<ab>/<file>`. The tests and `make baselines`
-///   read a copy of it, so the corpus is never written to; a corpus in the layout before
-///   sources had directories (`entries/` and `meta.json` at the top) still works, since the
-///   copy is moved into `sep/` the first time typesep opens it, and the corpus itself is moved
-///   by any typesep pointed at it, `typesep list --library <corpus>/library` say. The
-///   snapshots are made from it as it is, fetch dates and revisions included, so refetching
-///   anything in it means making them again.
+///   their paths on the site, `lwp/images/<a>/<ab>/<file>`. The tests, `make baselines`,
+///   `make render-check` and `make epub-check` read a copy of it, so the corpus is never
+///   written to; a corpus in the layout before sources had directories (`entries/` and
+///   `meta.json` at the top) still works, since the copy is moved into `sep/` the first time
+///   typesep opens it, and the corpus itself is moved by any typesep pointed at it,
+///   `typesep list --library <corpus>/library` say. The snapshots are made from it as it is,
+///   fetch dates and revisions included, so refetching anything in it means making them
+///   again.
 /// - `snapshots/model/<slug>.json`: what `dump model <slug> --sections all` prints, checked
 ///   here and by `make parity`; `snapshots/model/lwp/<title>.json`: what
 ///   `dump model --source lwp <title> --sections all` prints, checked here.

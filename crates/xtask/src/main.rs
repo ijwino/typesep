@@ -49,10 +49,11 @@ struct Walk {
     /// Walk the whole library instead of the fixture set.
     #[arg(long)]
     all: bool,
-    /// Leave the files behind instead of deleting them as they pass.
+    /// Leave the outputs behind instead of deleting them as they pass; the library copy goes
+    /// all the same.
     #[arg(long)]
     keep: bool,
-    /// The library the binary reads; the corpus's own by default.
+    /// The library the binary reads a copy of; the corpus's own by default.
     #[arg(long, value_name = "DIR")]
     library: Option<PathBuf>,
     /// Say what is happening, entry by entry.
@@ -187,6 +188,7 @@ fn walk(args: Walk, root: &Path, name: &str) -> checks::CheckArgs {
             .out
             .map_or_else(|| root.join("out").join(name), |out| root.join(out)),
         snapshots: corpus_subdir("snapshots/model"),
+        copy: root.join("out").join(format!("{name}-library")),
         all: args.all,
         keep: args.keep,
         verbose: args.verbose,
@@ -399,6 +401,21 @@ fn show(value: Option<&Value>) -> String {
 
 fn shell_quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
+}
+
+/// Copies the directory `from` and everything in it to `to`.
+pub(crate) fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn fail(message: &str) -> ! {
