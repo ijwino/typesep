@@ -398,7 +398,7 @@ enum Command {
     Explain(ExplainOptions),
     /// List the font families available to --font
     Fonts,
-    /// List the entries in the library with their revision dates
+    /// List the entries and texts in the library with their revision dates
     List(ListOptions),
     /// Write a shell completion script to stdout
     Completions(CompletionsOptions),
@@ -573,6 +573,10 @@ struct ListOptions {
     /// Where fetched pages and figures are kept [default: TYPESEP_LIBRARY or the platform data directory]
     #[arg(long, value_name = "dir")]
     library: Option<PathBuf>,
+
+    /// Only the works of this source: sep (entries) or lwp (texts) [default: every source's]
+    #[arg(long, value_name = "key", value_parser = source_keys())]
+    source: Option<String>,
 }
 
 fn with_shorthands(mut cmd: clap::Command) -> clap::Command {
@@ -688,10 +692,14 @@ fn list(opts: &ListOptions) -> ExitCode {
     };
     let entries: Vec<Held> = sources()
         .iter()
+        .filter(|source| opts.source.as_deref().is_none_or(|key| key == source.key()))
         .flat_map(|source| source.held(&library.store(source)))
         .collect();
     if entries.is_empty() {
-        eprintln!("nothing in the library yet at {}", show_path(&dir));
+        match &opts.source {
+            Some(key) => eprintln!("nothing of {key} in the library yet at {}", show_path(&dir)),
+            None => eprintln!("nothing in the library yet at {}", show_path(&dir)),
+        }
         return ExitCode::SUCCESS;
     }
     for e in entries {
