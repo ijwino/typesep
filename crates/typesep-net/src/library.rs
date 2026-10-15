@@ -269,7 +269,8 @@ impl Library {
     /// Without the lock each would rename what it saw, and on Windows a rename of a name
     /// another has just moved can succeed as well, so both would say they moved it. The lock
     /// file stays: one deleted while another typesep waits on it would let a third lock a new
-    /// one at the same time. Where the file system cannot lock, the migration goes on without.
+    /// one at the same time. The lock is a courtesy among typesep run at once, not a condition:
+    /// where it cannot be had, the migration goes on without it (see `lock_for_migration`).
     pub fn migrate_legacy(
         &self,
         old: &dyn Source,
@@ -400,22 +401,34 @@ impl Library {
             .any(|name| self.has_unit_of(old, &join(&name), rest))
     }
 
-    /// The migration lock, held until the file is dropped; the file alone where the file
-    /// system cannot lock.
-    fn lock_for_migration(&self) -> Result<fs::File, LibraryError> {
+    /// The migration lock, held until the file is dropped, at best. A file that cannot be
+    /// locked for any reason (a file system that cannot lock, NFS without its lock daemon) is
+    /// kept unlocked; none is made where the library's directory is read-only or not the
+    /// user's to write in, and the rename that then cannot be made says why. Only another
+    /// failure to open the file is an error.
+    fn lock_for_migration(&self) -> Result<Option<fs::File>, LibraryError> {
         let path = self.dir.join(MIGRATION_LOCK);
-        let file = fs::OpenOptions::new()
+        let file = match fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
             .open(&path)
-            .map_err(|e| io_error(&path, e))?;
-        match file.lock() {
-            Ok(()) => Ok(file),
-            Err(e) if e.kind() == io::ErrorKind::Unsupported => Ok(file),
-            Err(e) => Err(io_error(&path, e)),
-        }
+        {
+            Ok(file) => file,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::ReadOnlyFilesystem | io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                return Ok(None);
+            }
+            Err(e) => return Err(io_error(&path, e)),
+        };
+        // A lock refused, for whatever reason, is gone without.
+        let _ = file.lock();
+        Ok(Some(file))
     }
 
     fn both_layouts(&self, source: &str, names: &[&str]) -> LibraryError {
@@ -1012,6 +1025,37 @@ mod tests {
             .expect("a migration");
         assert_eq!(migrated.moved, ["entries"]);
         assert_eq!(listing(temp.path()), moved_under_sep(&files));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_library_that_cannot_hold_the_lock_file_says_what_cannot_move_instead() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        seed(temp.path(), &LEGACY);
+        fs::create_dir(temp.path().join("sep")).unwrap();
+        let mode = |mode| fs::set_permissions(temp.path(), fs::Permissions::from_mode(mode));
+        mode(0o555).unwrap();
+        if fs::write(temp.path().join("probe"), "").is_ok() {
+            // Whoever may write in any directory can make the lock file too.
+            mode(0o755).unwrap();
+            return;
+        }
+        let err = Library::new(temp.path())
+            .migrate_legacy(&OldSep, &["sep", "lwp"])
+            .unwrap_err();
+        mode(0o755).unwrap();
+        let LibraryError::Io { path, source } = &err else {
+            panic!("{err}");
+        };
+        assert_eq!(source.kind(), io::ErrorKind::PermissionDenied, "{err}");
+        assert_eq!(
+            path,
+            &temp.path().join(".derived"),
+            "the first name to move"
+        );
+        assert!(!temp.path().join(MIGRATION_LOCK).exists());
     }
 
     #[test]
