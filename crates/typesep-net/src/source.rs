@@ -5,6 +5,9 @@ use typesep_model::{Doc, Meta, Notice, Rights};
 use crate::library::{Place, PlaceError, Store};
 use crate::net::{LoadError, Net};
 
+/// What `--edition` names the edition a source serves now by, which every source has.
+pub const LIVE: &str = "live";
+
 /// A work a source can load, as `Source::resolve` names it from what the user typed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkRef {
@@ -119,7 +122,8 @@ pub trait Source: Sync {
     fn key(&self) -> &'static str;
     /// Whether `input` is an address on this source's site.
     fn claims(&self, input: &str) -> bool;
-    /// The work `input` names, in `edition` when one is given.
+    /// The work `input` names, in `edition` when one is given; `LIVE` is the one it serves
+    /// now, as when none is.
     fn resolve(&self, input: &str, edition: Option<&str>) -> Result<WorkRef, ResolveError>;
     /// Where the library keeps what `url` names.
     fn place(&self, url: &str) -> Result<Place, PlaceError>;

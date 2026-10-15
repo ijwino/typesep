@@ -1578,15 +1578,21 @@ fn update_command(opts: &UpdateArgs) -> ExitCode {
         if live.is_empty() {
             return usage_error("the library holds no entries yet");
         }
+        let (targets, notes) = match held_targets(&live, opts.fetching.edition.as_deref()) {
+            Ok(found) => found,
+            Err(err) => return usage_error(err),
+        };
         if !quiet {
+            for note in &notes {
+                eprintln!("  {note}");
+            }
             eprintln!(
                 "checking {} {} of the library",
-                live.len(),
-                entry_word(live.len())
+                targets.len(),
+                entry_word(targets.len())
             );
         }
-        // By address, which names the source as well as the work.
-        entries = live.iter().map(|e| e.url.clone()).collect();
+        entries = targets;
     }
     let sections = selected_sections(&opts.sections);
     if let Err(code) = targets_for(
@@ -1739,6 +1745,40 @@ fn read_entries(
         }
     }
     Ok(docs)
+}
+
+/// What `update` checks of the works `held` when it is given none: their addresses, which name
+/// the source as well as the work, but those of a source that has no `edition`, which are left
+/// alone with a note for each such source. Only if that leaves nothing is it an error, the
+/// source's own.
+fn held_targets(
+    held: &[&Held],
+    edition: Option<&str>,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let mut targets = Vec::new();
+    let mut skipped: Vec<(&'static str, usize, String)> = Vec::new();
+    for work in held {
+        let source = sources().for_input(&work.url, sources().default_source());
+        match source.resolve(&work.url, edition) {
+            Ok(_) => targets.push(work.url.clone()),
+            Err(err) => match skipped.iter_mut().find(|(key, ..)| *key == source.key()) {
+                Some((_, count, _)) => *count += 1,
+                None => skipped.push((source.key(), 1, err.to_string())),
+            },
+        }
+    }
+    if targets.is_empty()
+        && let Some((_, _, err)) = skipped.first()
+    {
+        return Err(err.clone());
+    }
+    let notes = skipped
+        .into_iter()
+        .map(|(key, count, err)| {
+            format!("{count} {} of {key} left alone: {err}", entry_word(count))
+        })
+        .collect();
+    Ok((targets, notes))
 }
 
 fn targets_for(
@@ -2224,9 +2264,61 @@ mod tests {
         let works = targets_for(&["Zettel".to_owned(), sep.to_owned()], None, &Lwp).unwrap();
         assert_eq!(works[0].url, lwp);
         assert_eq!(works[1].id, "kant");
+        assert_eq!(
+            targets_for(&[lwp.to_owned()], Some("live"), &Sep).unwrap()[0].url,
+            lwp,
+            "the live edition is every source's"
+        );
         assert!(
-            targets_for(&[lwp.to_owned()], Some("live"), &Sep).is_err(),
-            "the Wittgenstein Project has no editions"
+            targets_for(&[lwp.to_owned()], Some("sum2026"), &Sep).is_err(),
+            "the Wittgenstein Project has no other editions"
+        );
+    }
+
+    #[test]
+    fn update_leaves_alone_the_held_works_of_a_source_without_the_edition_asked_for() {
+        let held = |url: &str| Held {
+            id: String::new(),
+            edition: String::new(),
+            url: url.to_owned(),
+            revision: "1".to_owned(),
+            title: String::new(),
+            fetched_at: None,
+        };
+        let kant = held("https://plato.stanford.edu/entries/kant/");
+        let zettel = held("https://www.wittgensteinproject.org/w/index.php/Zettel");
+        let remarks = held("https://www.wittgensteinproject.org/w/index.php/Some_Remarks");
+        let library = [&kant, &zettel, &remarks];
+
+        for edition in [None, Some("live")] {
+            assert_eq!(
+                held_targets(&library, edition).unwrap(),
+                (
+                    vec![kant.url.clone(), zettel.url.clone(), remarks.url.clone()],
+                    Vec::<String>::new()
+                ),
+                "{edition:?}"
+            );
+        }
+        assert_eq!(
+            held_targets(&library, Some("sum2026")).unwrap(),
+            (
+                vec![kant.url.clone()],
+                vec![
+                    "2 entries of lwp left alone: lwp has no editions; it always uses the \
+                     current revision"
+                        .to_owned()
+                ]
+            )
+        );
+        assert_eq!(
+            held_targets(&[&zettel], Some("sum2026")).unwrap_err(),
+            "lwp has no editions; it always uses the current revision",
+            "with nothing else to check, the source's refusal is the error"
+        );
+        assert!(
+            targets_for(std::slice::from_ref(&zettel.url), Some("sum2026"), &Sep).is_err(),
+            "a work named is still refused an edition its source does not have"
         );
     }
 

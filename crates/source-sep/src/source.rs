@@ -1,7 +1,9 @@
 use typesep_model::{Doc, Meta};
 use typesep_net::library::{Place, PlaceError, Store};
 use typesep_net::net::{LoadError, Net};
-use typesep_net::source::{Held, LoadOptions, Loaded, ResolveError, SectionSpec, Source, WorkRef};
+use typesep_net::source::{
+    Held, LIVE, LoadOptions, Loaded, ResolveError, SectionSpec, Source, WorkRef,
+};
 
 use crate::entry::{EntryTarget, load_entry, normalize_entry, related_entry_urls};
 use crate::library::{HOST, list_entries, place_for};
@@ -12,8 +14,6 @@ use crate::sections::SECTIONS;
 pub struct Sep;
 
 pub const KEY: &str = "sep";
-
-const LIVE: &str = "live";
 
 impl Source for Sep {
     fn key(&self) -> &'static str {

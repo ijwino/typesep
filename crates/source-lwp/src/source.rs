@@ -2,7 +2,7 @@ use typesep_model::{Doc, Meta};
 use typesep_net::library::{Place, PlaceError, Store};
 use typesep_net::net::{LoadError, Net};
 use typesep_net::source::{
-    Held, LoadOptions, Loaded, ResolveError, SectionSpec, Source, WorkRef, volume_meta,
+    Held, LIVE, LoadOptions, Loaded, ResolveError, SectionSpec, Source, WorkRef, volume_meta,
 };
 
 use crate::address::{api_url, is_site_url, page_url, place_for, shell_word, title_of};
@@ -27,7 +27,7 @@ impl Source for Lwp {
     }
 
     fn resolve(&self, input: &str, edition: Option<&str>) -> Result<WorkRef, ResolveError> {
-        if edition.is_some() {
+        if edition.is_some_and(|edition| edition != LIVE) {
             return Err(ResolveError(
                 "lwp has no editions; it always uses the current revision".to_owned(),
             ));
@@ -166,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn a_title_or_a_page_address_names_a_text_and_an_edition_is_refused() {
+    fn a_title_or_a_page_address_names_a_text_and_an_edition_but_the_live_one_is_refused() {
         let work = Lwp.resolve("Some Remarks", None).unwrap();
         assert_eq!(
             work,
@@ -186,7 +186,12 @@ mod tests {
             work
         );
         assert_eq!(
-            Lwp.resolve("Some Remarks", Some("live"))
+            Lwp.resolve("Some Remarks", Some("live")).unwrap(),
+            work,
+            "the live edition is the current revision"
+        );
+        assert_eq!(
+            Lwp.resolve("Some Remarks", Some("sum2026"))
                 .unwrap_err()
                 .to_string(),
             "lwp has no editions; it always uses the current revision"
