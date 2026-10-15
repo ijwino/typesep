@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
+use typesep_model::walk::{Node, plain_text, walk_doc, walk_inlines};
 use typesep_model::{
     Align, Attachment, AttachmentKind, Block, Decoration, Dir, Doc, Figure, Inline, List,
     ListNumbering, Meta, NoteRef, NoteTable, Rules, Section, Table, TableCell, TocItem, VerseLine,
@@ -237,110 +238,13 @@ impl<'a> Ctx<'a> {
 fn highest_note_number(doc: &Doc) -> i64 {
     let mut max = 0;
     walk_doc(doc, &mut |node| {
-        if let Inline::NoteRef(note) = node
+        if let Node::Inline(Inline::NoteRef(note)) = node
             && let Ok(n) = note.label.parse::<i64>()
         {
             max = max.max(n);
         }
     });
     max
-}
-
-fn walk_doc(doc: &Doc, visit: &mut impl FnMut(&Inline)) {
-    let mut blocks: Vec<&Block> = Vec::new();
-    blocks.extend(doc.front.iter());
-    blocks.extend(doc.body.iter());
-    for section in &doc.back {
-        blocks.extend(section.blocks.iter());
-    }
-    for attachment in &doc.attachments {
-        blocks.extend(attachment.blocks.iter());
-        for note in attachment.notes.iter().flat_map(|n| n.values()) {
-            blocks.extend(note.iter());
-        }
-    }
-    for note in doc.notes.values() {
-        blocks.extend(note.iter());
-    }
-    for block in blocks {
-        walk_block(block, visit);
-    }
-}
-
-fn walk_block(block: &Block, visit: &mut impl FnMut(&Inline)) {
-    match block {
-        Block::Para { children, .. }
-        | Block::Pre { children }
-        | Block::Heading { children, .. } => walk_inlines(children, visit),
-        Block::List(list) => {
-            for item in &list.items {
-                for block in item {
-                    walk_block(block, visit);
-                }
-            }
-            for label in list.labels.iter().flatten() {
-                walk_inlines(label, visit);
-            }
-        }
-        Block::Blockquote { children }
-        | Block::Remark { children, .. }
-        | Block::Aside { children }
-        | Block::Lang { children, .. } => {
-            for block in children {
-                walk_block(block, visit);
-            }
-        }
-        Block::Columns { columns } => {
-            for block in columns.iter().flatten() {
-                walk_block(block, visit);
-            }
-        }
-        Block::Verse { lines } => {
-            for line in lines {
-                walk_inlines(&line.children, visit);
-            }
-        }
-        Block::Table(table) => {
-            if let Some(caption) = &table.caption {
-                walk_inlines(caption, visit);
-            }
-            for row in &table.rows {
-                for cell in row {
-                    walk_inlines(&cell.children, visit);
-                }
-            }
-        }
-        Block::Figure(figure) => {
-            if let Some(caption) = &figure.caption {
-                walk_inlines(caption, visit);
-            }
-        }
-        Block::Rule | Block::Anchor { .. } => {}
-    }
-}
-
-fn walk_inlines(nodes: &[Inline], visit: &mut impl FnMut(&Inline)) {
-    for node in nodes {
-        visit(node);
-        match node {
-            Inline::Emph { children }
-            | Inline::Strong { children }
-            | Inline::Sub { children }
-            | Inline::Sup { children }
-            | Inline::Code { children }
-            | Inline::Link { children, .. }
-            | Inline::Spaced { children }
-            | Inline::SmallCaps { children }
-            | Inline::Decorated { children, .. }
-            | Inline::MarginNote { children } => walk_inlines(children, visit),
-            Inline::Figure(figure) => {
-                if let Some(caption) = &figure.caption {
-                    walk_inlines(caption, visit);
-                }
-            }
-            _ => {}
-        }
-    }
 }
 
 /// The characters a document may print: its text, its remark numbers and note labels, what
@@ -383,23 +287,19 @@ fn printed_chars(docs: &[&Doc], volume: Option<&Meta>, view: &View<'_>) -> BTree
         for attachment in &doc.attachments {
             add(&attachment.title);
         }
-        walk_doc_blocks(doc, &mut |block| {
-            if let Block::Remark { number, .. } = block {
-                add(number);
-            }
-        });
-        let mut visit = |node: &Inline| match node {
-            Inline::Text { value } => add(value),
-            Inline::Math { tex, .. } => add(tex),
-            Inline::NoteRef(note) => add(&note.label),
-            Inline::Link {
+        let mut visit = |node: Node<'_>| match node {
+            Node::Block(Block::Remark { number, .. }) => add(number),
+            Node::Inline(Inline::Text { value }) => add(value),
+            Node::Inline(Inline::Math { tex, .. }) => add(tex),
+            Node::Inline(Inline::NoteRef(note)) => add(&note.label),
+            Node::Inline(Inline::Link {
                 href,
                 internal: false,
                 ..
-            } if addresses => add(&typesep_model::url::readable(href)),
+            }) if addresses => add(&typesep_model::url::readable(href)),
             _ => {}
         };
-        fn toc(items: &[TocItem], visit: &mut impl FnMut(&Inline)) {
+        fn toc<'a>(items: &'a [TocItem], visit: &mut impl FnMut(Node<'a>)) {
             for item in items {
                 walk_inlines(&item.label, visit);
                 toc(&item.children, visit);
@@ -409,69 +309,6 @@ fn printed_chars(docs: &[&Doc], volume: Option<&Meta>, view: &View<'_>) -> BTree
         walk_doc(doc, &mut visit);
     }
     chars
-}
-
-/// Every block of `doc`, the blocks inside others too, wherever the document holds them.
-fn walk_doc_blocks(doc: &Doc, visit: &mut impl FnMut(&Block)) {
-    fn walk(blocks: &[Block], visit: &mut impl FnMut(&Block)) {
-        for block in blocks {
-            visit(block);
-            match block {
-                Block::List(list) => {
-                    for item in &list.items {
-                        walk(item, visit);
-                    }
-                }
-                Block::Blockquote { children }
-                | Block::Remark { children, .. }
-                | Block::Aside { children }
-                | Block::Lang { children, .. } => walk(children, visit),
-                Block::Columns { columns } => {
-                    for column in columns {
-                        walk(column, visit);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    walk(&doc.front, visit);
-    walk(&doc.body, visit);
-    for section in &doc.back {
-        walk(&section.blocks, visit);
-    }
-    for attachment in &doc.attachments {
-        walk(&attachment.blocks, visit);
-        for note in attachment.notes.iter().flat_map(|n| n.values()) {
-            walk(note, visit);
-        }
-    }
-    for note in doc.notes.values() {
-        walk(note, visit);
-    }
-}
-
-fn plain_text(nodes: &[Inline]) -> String {
-    let mut out = String::new();
-    for node in nodes {
-        match node {
-            Inline::Text { value } => out.push_str(value),
-            Inline::Math { tex, .. } => out.push_str(tex.trim()),
-            Inline::Break => out.push(' '),
-            Inline::Anchor { .. } | Inline::Figure(_) | Inline::NoteRef(_) => {}
-            Inline::Emph { children }
-            | Inline::Strong { children }
-            | Inline::Sub { children }
-            | Inline::Sup { children }
-            | Inline::Code { children }
-            | Inline::Link { children, .. }
-            | Inline::Spaced { children }
-            | Inline::SmallCaps { children }
-            | Inline::Decorated { children, .. }
-            | Inline::MarginNote { children } => out.push_str(&plain_text(children)),
-        }
-    }
-    out
 }
 
 fn hoist_anchors(nodes: &[Inline]) -> (Vec<String>, Vec<Inline>) {

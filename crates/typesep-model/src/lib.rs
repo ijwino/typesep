@@ -356,29 +356,7 @@ impl TocItem {
     /// The line's text, its markup left out and a formula as its TeX: what the line is
     /// matched by against the names of the end matter a document leaves out.
     pub fn text(&self) -> String {
-        fn text_of(nodes: &[Inline], out: &mut String) {
-            for node in nodes {
-                match node {
-                    Inline::Text { value } => out.push_str(value),
-                    Inline::Math { tex, .. } => out.push_str(tex.trim()),
-                    Inline::Break => out.push(' '),
-                    Inline::Anchor { .. } | Inline::Figure(_) | Inline::NoteRef(_) => {}
-                    Inline::Emph { children }
-                    | Inline::Strong { children }
-                    | Inline::Sub { children }
-                    | Inline::Sup { children }
-                    | Inline::Code { children }
-                    | Inline::Link { children, .. }
-                    | Inline::Spaced { children }
-                    | Inline::SmallCaps { children }
-                    | Inline::Decorated { children, .. }
-                    | Inline::MarginNote { children } => text_of(children, out),
-                }
-            }
-        }
-        let mut out = String::new();
-        text_of(&self.label, &mut out);
-        out
+        walk::plain_text(&self.label)
     }
 }
 
