@@ -1,4 +1,4 @@
-use typesep_model::{Block, Dir, Doc, Inline, List, Meta, Origin};
+use typesep_model::{Block, Dir, Doc, Inline, List, Meta, Notice, NoticeLink, Origin, Rights};
 use typesep_style::{ResolveOptions, resolve_style};
 use typesep_typst::{EmitOptions, Fonts, TypesetWorld, emit_document};
 use typst::layout::{Frame, FrameItem};
@@ -345,5 +345,33 @@ fn an_address_is_printed_readable_and_left_to_right_in_text_written_right_to_lef
     assert!(
         scheme < arabic,
         "the footnote's address starts on the left: {scheme} before {arabic}"
+    );
+}
+
+#[test]
+fn a_notice_address_is_printed_left_to_right_in_text_written_right_to_left() {
+    let mut doc = arabic_doc(vec![para(vec![text(ARABIC)])]);
+    doc.meta.rights = Rights {
+        notices: vec![Notice {
+            text: "Read under the terms at".to_owned(),
+            link: Some(NoticeLink {
+                url: ARABIC_ADDRESS.to_owned(),
+                label: ARABIC_ADDRESS.to_owned(),
+            }),
+        }],
+        ..Rights::default()
+    };
+    let (source, _, document) = compile(&doc, &[]);
+    assert!(
+        source.contains(&format!(
+            "Read under the terms at #link(\"{ARABIC_ADDRESS}\")[#text(dir: ltr)[https:\u{200b}/\u{200b}/\u{200b}x.\u{200b}test/\u{200b}علم]]"
+        )),
+        "the colophon shows the notice's address readable, and links to it as it is: {source}"
+    );
+    let last = document.pages().len() - 1;
+    let (scheme, arabic) = address_parts(&document, last);
+    assert!(
+        scheme < arabic,
+        "the colophon's address starts on the left: {scheme} before {arabic}"
     );
 }

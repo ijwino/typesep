@@ -1594,7 +1594,7 @@ fn note_block(parts: &[String]) -> String {
 /// The terms the entry is read under, as the last page. This is not a style option: no
 /// setting removes it, because `cover.style` and `cover.fields` are the reader's to choose
 /// and the notice is not. The EPUB carries the same words in `dc:rights`.
-fn colophon(meta: &Meta, retrieved: &str) -> String {
+fn colophon(meta: &Meta, retrieved: &str, ctx: &Ctx<'_>) -> String {
     let mut parts = provenance(meta, retrieved);
     if !meta.rights.terms.is_empty() {
         parts.push(escape_text(&meta.rights.terms));
@@ -1605,7 +1605,7 @@ fn colophon(meta: &Meta, retrieved: &str) -> String {
                 "{} #link({})[{}]",
                 escape_text(&notice.text),
                 escape_string(&link.url),
-                crate::escape::url_for_display(&link.label)
+                left_to_right(crate::escape::url_for_display(&link.label), ctx)
             ),
             None => escape_text(&notice.text),
         });
@@ -1861,7 +1861,7 @@ fn render_body(docs: &[&Doc], ctx: &mut Ctx<'_>, opts: &EmitOptions<'_>) -> Stri
         out.push(after.trim().to_owned());
     }
 
-    out.push(colophon(meta, &retrieved));
+    out.push(colophon(meta, &retrieved, ctx));
     out.join("\n\n")
 }
 
