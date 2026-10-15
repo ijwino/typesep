@@ -4,7 +4,9 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use typesep_model::{Attachment, Block, Doc, EntryLinks, Inline, Meta, NoteTable, TocItem};
+use typesep_model::{
+    Attachment, Block, Doc, EntryLinks, Inline, Meta, NoteTable, Part, TocItem, scoped_id,
+};
 
 /// What each text's ids are put under, the left one's first, so that the ids of the two
 /// texts, which are mostly the same, stay apart in the one document.
@@ -33,7 +35,12 @@ pub enum ParallelError {
 /// of its own, first; the blocks after a remark go with it; a remark only one text has is set
 /// alone, where it stands in its text, which is said once for all of them. A text without
 /// remarks cannot be aligned and is refused.
-pub fn parallel(left: &Doc, right: &Doc, meta: Meta) -> Result<Parallel, ParallelError> {
+///
+/// The document is made of the two texts, each with its ids under its side: its contents are
+/// a line for each text that has any, the text's title, holding the text's own; and a link to
+/// either text's address with a fragment goes to the fragment's id in that text, as it does
+/// when the text is typeset alone.
+pub fn parallel(left: &Doc, right: &Doc, mut meta: Meta) -> Result<Parallel, ParallelError> {
     let originals = [left, right];
     let mut cuts: Vec<Cut> = Vec::new();
     for (doc, side) in originals.into_iter().zip(SIDES) {
@@ -100,13 +107,32 @@ pub fn parallel(left: &Doc, right: &Doc, meta: Meta) -> Result<Parallel, Paralle
         ));
     }
 
+    meta.origin.parts = originals
+        .iter()
+        .zip(SIDES)
+        .map(|(doc, side)| Part {
+            url: doc.meta.origin.url.clone(),
+            scope: side.to_owned(),
+        })
+        .collect();
     let [left, right] = [scoped_rest(left, SIDES[0]), scoped_rest(right, SIDES[1])];
+    let toc = [&left, &right]
+        .into_iter()
+        .filter(|text| !text.toc.is_empty())
+        .map(|text| TocItem {
+            label: vec![Inline::Text {
+                value: text.meta.title.clone(),
+            }],
+            href: String::new(),
+            children: text.toc.clone(),
+        })
+        .collect();
     let mut notes = left.notes.clone();
     notes.extend(right.notes.clone());
     let doc = Doc {
         meta,
         front: Vec::new(),
-        toc: left.toc.clone(),
+        toc,
         body,
         back: [left.back.clone(), right.back.clone()].concat(),
         notes,
@@ -235,7 +261,7 @@ fn in_language(doc: &Doc, blocks: Vec<Block>) -> Vec<Block> {
 }
 
 fn scoped(side: &str, id: &str) -> String {
-    format!("{side}--{id}")
+    scoped_id(side, id)
 }
 
 /// An address within the document, `#` and an id, put under `side`; any other is left as it
@@ -667,10 +693,11 @@ mod tests {
             made.doc
                 .toc
                 .iter()
+                .flat_map(|text| &text.children)
                 .map(|item| item.href.as_str())
                 .collect::<Vec<_>>(),
-            ["#left--1"],
-            "the contents are the left text's"
+            ["#left--1", "#right--1"],
+            "each text's contents go to its own ids"
         );
         assert_eq!(row["columns"][1][0]["lang"], json!("ar"));
         assert_eq!(row["columns"][1][0]["dir"], Value::from("ltr"));
@@ -680,5 +707,76 @@ mod tests {
         let made = parallel(&with_note("L", "de", "Anmerkung"), &rtl, Meta::default()).unwrap();
         let row = serde_json::to_value(&made.doc.body[0]).unwrap();
         assert_eq!(row["columns"][1][0]["dir"], json!("rtl"));
+    }
+
+    #[test]
+    fn the_contents_are_each_texts_under_its_title_and_each_text_keeps_its_address() {
+        let heading = |id: &str, words: &str| Block::Heading {
+            level: 2,
+            id: Some(id.into()),
+            children: vec![text(words)],
+            outline_only: false,
+        };
+        let line = |href: &str, words: &str| TocItem {
+            label: vec![text(words)],
+            href: href.into(),
+            children: Vec::new(),
+        };
+        let mut german = work(
+            "Abhandlung",
+            "de",
+            vec![heading("Vorwort", "Vorwort"), remark("1", "Eins.")],
+        );
+        german.meta.origin.url = "https://example.org/w/index.php/Abhandlung".into();
+        german.toc = vec![line("#Vorwort", "Vorwort")];
+        let mut english = work(
+            "Treatise",
+            "en",
+            vec![
+                heading("Preface", "Preface"),
+                remark("1", "One."),
+                heading("Notes", "Notes"),
+            ],
+        );
+        english.meta.origin.url = "https://example.org/w/index.php/Treatise".into();
+        english.toc = vec![TocItem {
+            children: vec![line("#Notes", "Notes")],
+            ..line("#Preface", "Preface")
+        }];
+
+        let made = parallel(&german, &english, Meta::default()).unwrap();
+        assert_eq!(
+            serde_json::to_value(&made.doc.toc).unwrap(),
+            json!([
+                { "label": [{ "type": "text", "value": "Abhandlung" }], "href": "", "children": [
+                    { "label": [{ "type": "text", "value": "Vorwort" }], "href": "#left--Vorwort", "children": [] }
+                ] },
+                { "label": [{ "type": "text", "value": "Treatise" }], "href": "", "children": [
+                    { "label": [{ "type": "text", "value": "Preface" }], "href": "#right--Preface", "children": [
+                        { "label": [{ "type": "text", "value": "Notes" }], "href": "#right--Notes", "children": [] }
+                    ] }
+                ] }
+            ]),
+            "a line for each text, its title, holding its own lines"
+        );
+        assert_eq!(
+            made.doc.meta.origin.parts,
+            [
+                Part {
+                    url: "https://example.org/w/index.php/Abhandlung".into(),
+                    scope: "left".into(),
+                },
+                Part {
+                    url: "https://example.org/w/index.php/Treatise".into(),
+                    scope: "right".into(),
+                },
+            ]
+        );
+        assert_eq!(made.doc.contents_above_headings(), 1);
+
+        german.toc.clear();
+        let made = parallel(&german, &english, Meta::default()).unwrap();
+        let titles: Vec<String> = made.doc.toc.iter().map(TocItem::text).collect();
+        assert_eq!(titles, ["Treatise"], "a text with no contents has no line");
     }
 }

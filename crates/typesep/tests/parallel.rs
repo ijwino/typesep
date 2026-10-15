@@ -153,7 +153,8 @@ struct Text {
 
 /// The text's page as the API renders it: the title page and colophon, a preface under a
 /// heading, a remark for every id, some of several paragraphs, two with notes, one longer than
-/// a page, and a rule with a paragraph after it inside a remark's unit.
+/// a page, one with a link to another remark by the page's address, and a rule with a
+/// paragraph after it inside a remark's unit.
 fn page_html(text: &Text) -> String {
     let mut body = String::new();
     let heading = |words: &str| {
@@ -179,6 +180,12 @@ fn page_html(text: &Text) -> String {
             notes.push_str(&format!(
                 "<li id=\"cite_note-{note}\"><span class=\"mw-cite-backlink\"><a href=\"#cite_ref-{note}\">↑</a></span> <span class=\"reference-text\">{}</span></li>\n",
                 sentences(text.words, k + 3, 2)
+            ));
+        }
+        if k == 10 {
+            first.push_str(&format!(
+                " <a href=\"/w/index.php/{}#2.1\">2.1</a>",
+                text.title
             ));
         }
         body.push_str(&format!(
@@ -568,5 +575,76 @@ fn a_bilingual_edition_takes_two_texts_with_remarks() {
     assert!(
         String::from_utf8_lossy(&run.stderr)
             .contains("--parallel takes two works, the one for the left first, and 1 was given")
+    );
+}
+
+#[test]
+fn a_bilingual_edition_lists_the_contents_of_both_texts_and_links_each_to_its_own_page_within() {
+    let harness = Harness::new();
+    harness.build(
+        "contents",
+        &["--parallel", "Ein_Heft", "A_Notebook", "--format", "epub"],
+    );
+    let epub = fs::File::open(harness.file("contents", "epub")).unwrap();
+    let mut archive = zip::ZipArchive::new(epub).unwrap();
+    let mut read = |name: &str| {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut archive.by_name(name).unwrap(), &mut text).unwrap();
+        text
+    };
+    let nav = read("OEBPS/nav.xhtml");
+    assert!(
+        nav.contains(
+            "<ol><li><span>Ein Heft</span><ol><li><a href=\"entry-1.xhtml#left--Vorwort\">Vorwort</a></li></ol></li>\
+             <li><span>A Notebook</span><ol><li><a href=\"entry-1.xhtml#right--Preface\">Preface</a></li></ol></li></ol>"
+        ),
+        "a line for each text holding its headings: {nav}"
+    );
+    let page = read("OEBPS/entry-1.xhtml");
+    for side in ["left", "right"] {
+        assert!(
+            page.contains(&format!("<a href=\"#{side}--2.1\">2.1</a>")),
+            "a link to the text's own page goes to its remark: {page}"
+        );
+    }
+
+    let dump = harness.typesep(&[
+        "dump",
+        "typst",
+        "--source",
+        "lwp",
+        "--parallel",
+        "Ein_Heft",
+        "A_Notebook",
+        "--quiet",
+        "-s",
+        "parallel.layout=columns",
+        "-s",
+        "toc.style=bullet",
+        "-s",
+        "toc.depth=1",
+    ]);
+    assert!(dump.status.success());
+    let typ = String::from_utf8_lossy(&dump.stdout);
+    assert!(
+        typ.contains(
+            "#list(tight: true, [Ein Heft\n\n#list(tight: true, [#link(<left--Vorwort>)[Vorwort]])], \
+             [A Notebook\n\n#list(tight: true, [#link(<right--Preface>)[Preface]])])"
+        ),
+        "the contents hold each text's headings to the depth they have alone: {typ}"
+    );
+    assert!(
+        typ.contains("#heading(level: 2)[Preface] <right--Preface>"),
+        "the second text's heading is in the outline"
+    );
+    for side in ["left", "right"] {
+        assert!(
+            typ.contains(&format!("#link(<{side}--2.1>)[2.1]")),
+            "a link to the text's own page goes to its remark: {typ}"
+        );
+    }
+    assert!(
+        !typ.contains("index.php/Ein_Heft#"),
+        "no link leaves the book"
     );
 }
