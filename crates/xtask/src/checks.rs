@@ -215,7 +215,7 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut notes = Tally::default();
     let (mut rendered, mut pages) = (0usize, 0usize);
-    let (mut moved_notes, mut moved_entries, mut not_listed) = (0usize, 0usize, 0usize);
+    let (mut moved_notes, mut moved_works, mut not_listed) = (0usize, 0usize, 0usize);
     let mut tallest = 0f64;
 
     for (index, target) in targets.iter().enumerate() {
@@ -240,7 +240,7 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
         }
         moved_notes += moved_here;
         if moved_here > 0 {
-            moved_entries += 1;
+            moved_works += 1;
         }
         let asked = super::asked_the_network(&stderr);
         let ok = run.status.success() && asked.is_none();
@@ -265,7 +265,7 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
     }
 
     if !failures.is_empty() {
-        eprintln!("\n{} entries did not render:", failures.len());
+        eprintln!("\n{} works did not render:", failures.len());
         for (label, message) in &failures {
             eprintln!("  {label}: {message}");
         }
@@ -273,7 +273,7 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
     report_notes(&notes);
     if moved_notes > 0 {
         eprintln!(
-            "\n{moved_notes} notes in {moved_entries} entries are set at the end of the entry \
+            "\n{moved_notes} notes in {moved_works} works are set at the end of the work \
              (notes.maxHeight); the tallest is {} text heights",
             trim_float(tallest)
         );
@@ -397,7 +397,7 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
     }
 
     if !failures.is_empty() {
-        eprintln!("\n{} entries did not pass:", failures.len());
+        eprintln!("\n{} works did not pass:", failures.len());
         for (label, message) in &failures {
             eprintln!("  {label}: {message}");
         }
