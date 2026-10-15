@@ -74,7 +74,7 @@ struct Ctx<'a> {
     own_refs: Vec<(String, String)>,
     attached: HashMap<String, usize>,
     attachment_index: Option<usize>,
-    self_urls: HashSet<String>,
+    self_urls: typesep_model::OwnPages,
     in_note: bool,
     pre: bool,
     known: HashSet<String>,
@@ -126,7 +126,7 @@ impl<'a> Ctx<'a> {
             own_refs: Vec::new(),
             attached: HashMap::new(),
             attachment_index: None,
-            self_urls: HashSet::new(),
+            self_urls: Default::default(),
             in_note: false,
             pre: false,
             known: HashSet::new(),
@@ -211,12 +211,8 @@ impl<'a> Ctx<'a> {
             };
             return self.resolves(&label).then_some(label);
         }
-        if self.self_urls.contains(page) {
-            let fragment = fragment?;
-            let label = self.label_for(fragment, None);
-            return self.resolves(&label).then_some(label);
-        }
-        None
+        let label = self.label_for(&self.self_urls.id(href)?, None);
+        self.resolves(&label).then_some(label)
     }
 
     fn figure_path(&mut self, url: &str) -> Option<String> {
@@ -1314,7 +1310,13 @@ fn own_notes_markup(ctx: &mut Ctx<'_>) -> Option<String> {
     Some(lines.join("\n\n"))
 }
 
-fn table_of_contents(toc: &[TocItem], back: &[Section], ctx: &mut Ctx<'_>) -> Option<String> {
+/// The contents of `toc`, the levels `above` its headings listed beyond the style's depth.
+fn table_of_contents(
+    toc: &[TocItem],
+    back: &[Section],
+    above: i64,
+    ctx: &mut Ctx<'_>,
+) -> Option<String> {
     let style = ctx.view.str("toc.style");
     let depth = ctx.view.int("toc.depth");
     if style == "none" || toc.is_empty() {
@@ -1340,7 +1342,7 @@ fn table_of_contents(toc: &[TocItem], back: &[Section], ctx: &mut Ctx<'_>) -> Op
         .map(|section| section.label.to_lowercase())
         .collect();
     let page_numbers = ctx.view.bool("toc.pageNumbers");
-    let body = toc_items(toc, 1, depth, &dropped, page_numbers, ctx)?;
+    let body = toc_items(toc, 1 - above, depth, &dropped, page_numbers, ctx)?;
     Some(format!("{heading}{body}"))
 }
 
@@ -1542,16 +1544,7 @@ fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
         })
         .collect();
     ctx.attachment_index = None;
-    ctx.self_urls = if doc.meta.origin.url.is_empty() {
-        HashSet::new()
-    } else {
-        let base = doc.meta.origin.url.clone();
-        let directory = match base.rfind('/') {
-            Some(at) => format!("{}index.html", &base[..=at]),
-            None => format!("{base}index.html"),
-        };
-        HashSet::from([base, directory])
-    };
+    ctx.self_urls = typesep_model::OwnPages::of(&doc.meta.origin);
     ctx.endnotes.clear();
     ctx.endnote_next = 1;
 
@@ -1590,7 +1583,8 @@ fn entry_body(doc: &Doc, ctx: &mut Ctx<'_>) -> Vec<String> {
         render_blocks(&doc.front, ctx)
     }));
 
-    if let Some(toc) = table_of_contents(&doc.toc, &doc.back, ctx) {
+    let above = doc.contents_above_headings();
+    if let Some(toc) = table_of_contents(&doc.toc, &doc.back, above, ctx) {
         out.push(toc);
     }
 

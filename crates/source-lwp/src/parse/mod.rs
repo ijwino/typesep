@@ -245,6 +245,7 @@ pub fn parse_page(answer: &str, opts: &ParseOptions) -> Result<Doc, String> {
                 edition_label: String::new(),
                 revision,
                 retrieved: opts.fetched_at.chars().take(10).collect(),
+                parts: Vec::new(),
             },
             rights: colophon.rights,
             macros: Default::default(),

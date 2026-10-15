@@ -93,7 +93,8 @@ pub fn nav_items(doc: &Doc, file: &str, sections: &BTreeSet<String>, ctx: &mut C
         );
     }
     let depth = ctx.view.int("toc.depth");
-    let own = render(&doc.toc, 1, depth, file, &dropped, ctx);
+    let first = 1 - doc.contents_above_headings();
+    let own = render(&doc.toc, first, depth, file, &dropped, ctx);
     if own.is_empty() && extras.is_empty() {
         return String::new();
     }

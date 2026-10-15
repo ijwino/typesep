@@ -114,6 +114,7 @@ pub fn parse_metadata(document: &Html, src: &MetadataSource) -> Meta {
             edition_label: edition_label(src.edition),
             revision,
             retrieved: src.fetched_at.to_owned(),
+            parts: Vec::new(),
         },
         macros: BTreeMap::new(),
     }

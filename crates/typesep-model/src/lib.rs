@@ -300,6 +300,67 @@ pub struct Origin {
     pub edition_label: String,
     pub revision: String,
     pub retrieved: String,
+    /// The texts the document is made of, as a bilingual edition is of two, each with its ids
+    /// under a scope of its own. Its contents are then a line for each text, the text's title,
+    /// holding the text's own lines; and a link to a text's address with a fragment goes to
+    /// the fragment's id under the text's scope, as a link to the document's own address goes
+    /// to the id itself.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<Part>,
+}
+
+/// A text a document is made of: where it came from, and the scope its ids are under in the
+/// document.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Part {
+    pub url: String,
+    pub scope: String,
+}
+
+/// `id` of a text put under `scope`, so that the ids of the texts a document is made of stay
+/// apart in it.
+pub fn scoped_id(scope: &str, id: &str) -> String {
+    format!("{scope}--{id}")
+}
+
+/// The addresses a link names a document by when it links to the document itself, each with
+/// the scope of the ids it goes to: the document's own address and `index.html` in its
+/// directory, where a site serves the same page, with no scope; and those of each text it is
+/// made of, under the text's. The first to name an address keeps it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OwnPages(BTreeMap<String, Option<String>>);
+
+impl OwnPages {
+    pub fn of(origin: &Origin) -> OwnPages {
+        let own = std::iter::once((origin.url.as_str(), None));
+        let parts = origin
+            .parts
+            .iter()
+            .map(|part| (part.url.as_str(), Some(part.scope.as_str())));
+        let mut pages = BTreeMap::new();
+        for (url, scope) in own.chain(parts).filter(|(url, _)| !url.is_empty()) {
+            let directory = match url.rfind('/') {
+                Some(at) => &url[..=at],
+                None => url,
+            };
+            for page in [url.to_owned(), format!("{directory}index.html")] {
+                pages
+                    .entry(page)
+                    .or_insert_with(|| scope.map(str::to_owned));
+            }
+        }
+        OwnPages(pages)
+    }
+
+    /// The id a link to `href` goes to, when `href` is one of these addresses with a fragment.
+    pub fn id(&self, href: &str) -> Option<String> {
+        let (page, fragment) = href.split_once('#')?;
+        let scope = self.0.get(page)?;
+        (!fragment.is_empty()).then(|| match scope {
+            Some(scope) => scoped_id(scope, fragment),
+            None => fragment.to_owned(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -406,6 +467,19 @@ pub struct Doc {
     pub links: EntryLinks,
     pub attachments: Vec<Attachment>,
     pub warnings: Vec<String>,
+}
+
+impl Doc {
+    /// How many levels of its contents are above the document's headings, which the depth a
+    /// style lists the contents to does not count: one when it is made of texts, whose
+    /// contents are a line for each text holding the text's own, else none.
+    pub fn contents_above_headings(&self) -> i64 {
+        if self.meta.origin.parts.is_empty() {
+            0
+        } else {
+            1
+        }
+    }
 }
 
 #[cfg(test)]
@@ -830,6 +904,84 @@ mod tests {
             json!({ "type": "rule" })
         );
         assert!(serde_json::from_value::<Value>(json!(null)).is_ok());
+    }
+
+    #[test]
+    fn a_link_to_the_document_or_a_text_it_is_made_of_goes_to_the_id_under_its_scope() {
+        let alone = Origin {
+            url: "https://plato.stanford.edu/entries/x/".into(),
+            ..Origin::default()
+        };
+        let pages = OwnPages::of(&alone);
+        assert_eq!(
+            pages.id("https://plato.stanford.edu/entries/x/#s1"),
+            Some("s1".to_owned())
+        );
+        assert_eq!(
+            pages.id("https://plato.stanford.edu/entries/x/index.html#s1"),
+            Some("s1".to_owned()),
+            "the page its directory serves is the same page"
+        );
+        assert_eq!(pages.id("https://plato.stanford.edu/entries/x/"), None);
+        assert_eq!(pages.id("https://plato.stanford.edu/entries/x/#"), None);
+        assert_eq!(pages.id("https://plato.stanford.edu/entries/y/#s1"), None);
+
+        let edition = Origin {
+            parts: vec![
+                Part {
+                    url: "https://example.org/w/index.php/Eins".into(),
+                    scope: "left".into(),
+                },
+                Part {
+                    url: "https://example.org/w/index.php/One".into(),
+                    scope: "right".into(),
+                },
+                Part {
+                    url: "https://example.org/w/index.php/Eins".into(),
+                    scope: "again".into(),
+                },
+                Part {
+                    url: String::new(),
+                    scope: "nowhere".into(),
+                },
+            ],
+            ..Origin::default()
+        };
+        let pages = OwnPages::of(&edition);
+        assert_eq!(
+            pages.id("https://example.org/w/index.php/Eins#1.1"),
+            Some("left--1.1".to_owned()),
+            "the first text to name an address keeps it"
+        );
+        assert_eq!(
+            pages.id("https://example.org/w/index.php/One#1.1"),
+            Some("right--1.1".to_owned())
+        );
+        assert_eq!(pages.id("#1.1"), None, "no text has an empty address");
+        assert_eq!(scoped_id("left", "1.1"), "left--1.1");
+
+        let made_of = |parts: Vec<Part>| Doc {
+            meta: Meta {
+                origin: Origin {
+                    parts,
+                    ..Origin::default()
+                },
+                ..Meta::default()
+            },
+            ..Doc::default()
+        };
+        assert_eq!(made_of(Vec::new()).contents_above_headings(), 0);
+        assert_eq!(made_of(edition.parts.clone()).contents_above_headings(), 1);
+        let value = serde_json::to_value(&edition).unwrap();
+        assert_eq!(
+            value["parts"][0],
+            json!({ "url": "https://example.org/w/index.php/Eins", "scope": "left" })
+        );
+        assert_eq!(serde_json::from_value::<Origin>(value).unwrap(), edition);
+        assert!(
+            serde_json::to_value(&alone).unwrap().get("parts").is_none(),
+            "a document of no parts does not say so"
+        );
     }
 
     #[test]

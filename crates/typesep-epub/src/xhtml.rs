@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use typesep_model::{
     Align, Attachment, AttachmentKind, Block, Decoration, Dir, Doc, Figure, Inline, List, MathMode,
-    NoteRef, NoteTable, Rules, Table, TableCell, VerseLine,
+    NoteRef, NoteTable, OwnPages, Rules, Table, TableCell, VerseLine,
 };
 use typesep_style::View;
 use typesep_typst::images::Image;
@@ -84,7 +84,7 @@ pub struct Ctx<'a> {
     own_refs: Vec<(String, String, Option<String>)>,
     pub attached: BTreeMap<String, usize>,
     pub attachment_index: Option<usize>,
-    pub self_urls: BTreeSet<String>,
+    pub self_urls: OwnPages,
     pub note_bodies: Vec<NoteBody>,
     pub has_math: bool,
     pub in_note: bool,
@@ -107,7 +107,7 @@ impl<'a> Ctx<'a> {
             own_refs: Vec::new(),
             attached: BTreeMap::new(),
             attachment_index: None,
-            self_urls: BTreeSet::new(),
+            self_urls: OwnPages::default(),
             note_bodies: Vec::new(),
             has_math: false,
             in_note: false,
@@ -169,11 +169,8 @@ impl<'a> Ctx<'a> {
             };
             return self.has_id(&id).then_some(id);
         }
-        if self.self_urls.contains(page) && !fragment.is_empty() {
-            let id = self.id_ref_in(fragment, None);
-            return self.has_id(&id).then_some(id);
-        }
-        None
+        let id = self.id_ref_in(&self.self_urls.id(href)?, None);
+        self.has_id(&id).then_some(id)
     }
 
     fn links_are_dropped(&self) -> bool {
@@ -878,16 +875,7 @@ pub fn entry_html(doc: &Doc, ctx: &mut Ctx, sections: &BTreeSet<String>) -> Stri
         })
         .collect();
     ctx.attachment_index = None;
-    ctx.self_urls = BTreeSet::new();
-    if !doc.meta.origin.url.is_empty() {
-        let url = &doc.meta.origin.url;
-        let directory = match url.rfind('/') {
-            Some(at) => &url[..=at],
-            None => "",
-        };
-        ctx.self_urls.insert(url.clone());
-        ctx.self_urls.insert(format!("{directory}index.html"));
-    }
+    ctx.self_urls = OwnPages::of(&doc.meta.origin);
     ctx.note_bodies = Vec::new();
     ctx.written = BTreeSet::new();
 
