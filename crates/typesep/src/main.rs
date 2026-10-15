@@ -74,7 +74,7 @@ fn open_library(dir: &Path, create: bool, quiet: bool) -> Result<Library, ExitCo
         return Err(user_error(err));
     }
     let keys: Vec<&str> = sources().iter().map(|source| source.key()).collect();
-    match library.migrate_legacy(Sep.key(), &keys) {
+    match library.migrate_legacy(&Sep, &keys) {
         Ok(Some(migrated)) if !quiet => eprintln!(
             "moved the library {} into {}, where this version keeps the SEP's files",
             show_path(dir),
@@ -2228,6 +2228,52 @@ mod tests {
             targets_for(&[lwp.to_owned()], Some("live"), &Sep).is_err(),
             "the Wittgenstein Project has no editions"
         );
+    }
+
+    #[test]
+    fn a_library_is_moved_into_the_present_layout_only_when_typesep_wrote_it() {
+        let write = |dir: &Path, files: &[(&str, &str)]| {
+            for (name, body) in files {
+                let path = dir.join(name);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, body).unwrap();
+            }
+        };
+        let foreign = tempfile::tempdir().unwrap();
+        write(
+            foreign.path(),
+            &[
+                ("archives/2019/taxes.pdf", "%PDF"),
+                ("entries/diary/2020.txt", "dear diary"),
+                ("notes.txt", "mine"),
+            ],
+        );
+        open_library(foreign.path(), false, true).unwrap();
+        let mut names: Vec<String> = std::fs::read_dir(foreign.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            ["archives", "entries", "notes.txt"],
+            "a folder of the user's is no library to move, and gets no lock file"
+        );
+
+        let old = tempfile::tempdir().unwrap();
+        write(
+            old.path(),
+            &[
+                ("entries/kant/index.html", "<h1>Kant</h1>"),
+                (
+                    "entries/kant/meta.json",
+                    r#"{"url":"https://plato.stanford.edu/entries/kant/","files":{}}"#,
+                ),
+            ],
+        );
+        open_library(old.path(), false, true).unwrap();
+        assert!(old.path().join("sep/entries/kant/index.html").is_file());
+        assert!(!old.path().join("entries").exists());
     }
 
     #[test]

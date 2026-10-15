@@ -15,6 +15,11 @@ const DERIVED: &str = ".derived";
 /// last, so that one cut short still shows.
 const LEGACY_MARKS: [&str; 3] = ["archives", "entries", META];
 
+/// The units whose `meta.json` such a library wrote, by their paths from its top, `*` standing
+/// for any name: its root's, and each entry's, live and archived. A mark makes a directory
+/// such a library only with one of these beside it.
+const LEGACY_UNITS: [&str; 3] = ["", "entries/*", "archives/*/entries/*"];
+
 /// The file at a library's top that one migration at a time holds locked. It is a dot file, so
 /// a migration leaves it where it is and nothing that reads the library lists it.
 const MIGRATION_LOCK: &str = ".migrate.lock";
@@ -242,10 +247,15 @@ impl Library {
         }
     }
 
-    /// Moves a library written before each source had its own directory, which held the SEP's
-    /// files at its top, into `<dir>/<source>`, and says what it moved; a library in the
-    /// present layout, or none at all, is left as it is. `sources` are the names of the
-    /// sources' directories, which never move.
+    /// Moves a library written before each source had its own directory, which held the files
+    /// of `old` (the SEP) at its top, into `<dir>/<source>`, `<source>` being its key, and says
+    /// what it moved; a library in the present layout, or none at all, is left as it is.
+    /// `sources` are the names of the sources' directories, which never move.
+    ///
+    /// A directory is taken for such a library only when a name at its top marks the old layout
+    /// and a unit that layout kept records in its `meta.json` the address `old` places at that
+    /// very unit, as only typesep writes it: a folder of the user's that happens to hold an
+    /// `archives` or an `entries` is not touched, and no lock file is made in it.
     ///
     /// Nothing is copied or deleted: every top-level name but those and the dot files (save
     /// `.derived`) is renamed into `<dir>/<source>` as it is, one rename each, so each one
@@ -262,17 +272,18 @@ impl Library {
     /// one at the same time. Where the file system cannot lock, the migration goes on without.
     pub fn migrate_legacy(
         &self,
-        source: &str,
+        old: &dyn Source,
         sources: &[&str],
     ) -> Result<Option<Migrated>, LibraryError> {
-        if self.legacy_names()?.is_none() {
+        if self.legacy_names(old)?.is_none() {
             return Ok(None);
         }
         let _lock = self.lock_for_migration()?;
-        let Some(names) = self.legacy_names()? else {
+        let Some(names) = self.legacy_names(old)? else {
             return Ok(None);
         };
 
+        let source = old.key();
         let into = self.dir.join(source);
         match fs::symlink_metadata(&into) {
             Ok(meta) if !meta.is_dir() => return Err(LibraryError::NotADirectory { path: into }),
@@ -329,9 +340,10 @@ impl Library {
         Ok((!moved.is_empty()).then_some(Migrated { into, moved }))
     }
 
-    /// The names at the library's top when one of them marks the old layout; none when no
-    /// name does, or there is no library.
-    fn legacy_names(&self) -> Result<Option<Vec<String>>, LibraryError> {
+    /// The names at the library's top when one of them marks the old layout and it holds a
+    /// unit of `old` as that layout kept it; none when no name does, the directory is not such
+    /// a library, or there is no library.
+    fn legacy_names(&self, old: &dyn Source) -> Result<Option<Vec<String>>, LibraryError> {
         let names = match fs::read_dir(&self.dir) {
             Ok(entries) => entries
                 .map(|entry| entry.map_err(|e| io_error(&self.dir, e)))
@@ -345,7 +357,47 @@ impl Library {
         let marked = names
             .iter()
             .any(|name| LEGACY_MARKS.contains(&name.as_str()));
-        Ok(marked.then_some(names))
+        let ours = marked
+            && LEGACY_UNITS.iter().any(|pattern| {
+                let pattern: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
+                self.has_unit_of(old, "", &pattern)
+            });
+        Ok(ours.then_some(names))
+    }
+
+    /// Whether a unit under `unit` (a path from the library's top) whose path goes on as
+    /// `pattern` does holds a `meta.json` that records the address `old` places at that unit.
+    fn has_unit_of(&self, old: &dyn Source, unit: &str, pattern: &[&str]) -> bool {
+        let Some((next, rest)) = pattern.split_first() else {
+            let Some(meta) = fs::read_to_string(self.dir.join(unit).join(META))
+                .ok()
+                .and_then(|text| serde_json::from_str::<UnitMeta>(&text).ok())
+            else {
+                return false;
+            };
+            return old
+                .place(&meta.url)
+                .is_ok_and(|place| place.unit == unit && place.unit_url == meta.url);
+        };
+        let join = |name: &str| {
+            if unit.is_empty() {
+                name.to_owned()
+            } else {
+                format!("{unit}/{name}")
+            }
+        };
+        if *next != "*" {
+            return self.has_unit_of(old, &join(next), rest);
+        }
+        let Ok(entries) = fs::read_dir(self.dir.join(unit)) else {
+            return false;
+        };
+        entries
+            .flatten()
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|name| !name.starts_with('.'))
+            .any(|name| self.has_unit_of(old, &join(&name), rest))
     }
 
     /// The migration lock, held until the file is dropped; the file alone where the file
@@ -729,6 +781,68 @@ mod tests {
         out
     }
 
+    const SEP_SITE: &str = "https://plato.stanford.edu/";
+
+    /// The SEP as the migration knows it: its key, and the units its addresses are placed at,
+    /// a directory's address at the directory.
+    struct OldSep;
+
+    impl Source for OldSep {
+        fn key(&self) -> &'static str {
+            "sep"
+        }
+        fn claims(&self, input: &str) -> bool {
+            input.starts_with(SEP_SITE)
+        }
+        fn resolve(
+            &self,
+            _: &str,
+            _: Option<&str>,
+        ) -> Result<crate::source::WorkRef, crate::source::ResolveError> {
+            unreachable!("a migration resolves nothing")
+        }
+        fn place(&self, url: &str) -> Result<Place, PlaceError> {
+            let path = url.strip_prefix(SEP_SITE).ok_or(PlaceError::OtherSite {
+                url: url.to_owned(),
+                site: SEP_SITE,
+            })?;
+            let (unit, file) = path.rsplit_once('/').unwrap_or(("", path));
+            Ok(Place {
+                unit: unit.to_owned(),
+                file: if file.is_empty() { "index.html" } else { file }.to_owned(),
+                unit_url: if unit.is_empty() {
+                    SEP_SITE.to_owned()
+                } else {
+                    format!("{SEP_SITE}{unit}/")
+                },
+            })
+        }
+        fn load(
+            &self,
+            _: &crate::source::WorkRef,
+            _: &mut crate::net::Net<'_>,
+            _: crate::source::LoadOptions<'_>,
+        ) -> Result<crate::source::Loaded, crate::net::LoadError> {
+            unreachable!("a migration loads nothing")
+        }
+        fn sections(&self) -> &'static [crate::source::SectionSpec] {
+            &[]
+        }
+        fn held(&self, _: &Store<'_>) -> Vec<crate::source::Held> {
+            Vec::new()
+        }
+    }
+
+    /// The `meta.json` typesep wrote for the SEP's unit at `unit`.
+    fn sep_record(unit: &str) -> String {
+        let url = if unit.is_empty() {
+            SEP_SITE.to_owned()
+        } else {
+            format!("{SEP_SITE}{unit}/")
+        };
+        format!(r#"{{"url":"{url}","files":{{"index.html":{{}}}}}}"#)
+    }
+
     /// `listing` with the empty lock file a typesep that found the old layout leaves at the top.
     fn with_the_lock(mut listing: Vec<(String, Option<String>)>) -> Vec<(String, Option<String>)> {
         listing.push((MIGRATION_LOCK.to_owned(), Some(String::new())));
@@ -736,14 +850,21 @@ mod tests {
         listing
     }
 
-    const LEGACY: [(&str, &str); 9] = [
+    const LEGACY: [(&str, &str); 10] = [
         (
             "meta.json",
             r#"{"url":"https://plato.stanford.edu/","files":{}}"#,
         ),
         ("contents.html", "<ol/>"),
-        ("entries/turing-machine/meta.json", "{}"),
+        (
+            "entries/turing-machine/meta.json",
+            r#"{"url":"https://plato.stanford.edu/entries/turing-machine/","files":{}}"#,
+        ),
         ("entries/turing-machine/index.html", "<h1>TM</h1>"),
+        (
+            "archives/sum2026/entries/kant/meta.json",
+            r#"{"url":"https://plato.stanford.edu/archives/sum2026/entries/kant/","files":{}}"#,
+        ),
         ("archives/sum2026/entries/kant/index.html", "<h1>Kant</h1>"),
         (".derived/entries/turing-machine/S1.svg.png", "png"),
         ("info/", ""),
@@ -773,7 +894,7 @@ mod tests {
         let library = Library::new(temp.path());
 
         let migrated = library
-            .migrate_legacy("sep", &["sep", "lwp"])
+            .migrate_legacy(&OldSep, &["sep", "lwp"])
             .unwrap()
             .expect("a migration");
         assert_eq!(migrated.into, temp.path().join("sep"));
@@ -799,7 +920,7 @@ mod tests {
                 .is_file()
         );
         assert_eq!(
-            library.migrate_legacy("sep", &["sep", "lwp"]).unwrap(),
+            library.migrate_legacy(&OldSep, &["sep", "lwp"]).unwrap(),
             None,
             "once is enough"
         );
@@ -817,20 +938,20 @@ mod tests {
         seed(temp.path(), &present);
         let before = listing(temp.path());
         let library = Library::new(temp.path());
-        assert_eq!(library.migrate_legacy("sep", &["sep"]).unwrap(), None);
+        assert_eq!(library.migrate_legacy(&OldSep, &["sep"]).unwrap(), None);
         assert_eq!(listing(temp.path()), before);
 
         let empty = tempfile::tempdir().unwrap();
         assert_eq!(
             Library::new(empty.path())
-                .migrate_legacy("sep", &["sep"])
+                .migrate_legacy(&OldSep, &["sep"])
                 .unwrap(),
             None
         );
         let absent = empty.path().join("nowhere");
         assert_eq!(
             Library::new(&absent)
-                .migrate_legacy("sep", &["sep"])
+                .migrate_legacy(&OldSep, &["sep"])
                 .unwrap(),
             None
         );
@@ -838,6 +959,59 @@ mod tests {
             !absent.exists(),
             "nothing is created for a library that is not there"
         );
+    }
+
+    #[test]
+    fn a_folder_with_the_names_of_the_old_layout_but_no_record_of_typesep_is_left_alone() {
+        let temp = tempfile::tempdir().unwrap();
+        seed(
+            temp.path(),
+            &[
+                ("archives/2019/taxes.pdf", "%PDF"),
+                ("entries/diary/2020.txt", "dear diary"),
+                ("entries/diary/meta.json", r#"{"author":"me"}"#),
+                (
+                    "entries/recipes/meta.json",
+                    r#"{"url":"https://example.org/entries/recipes/","files":{}}"#,
+                ),
+                (
+                    "entries/kant/meta.json",
+                    r#"{"url":"https://plato.stanford.edu/entries/hume/","files":{}}"#,
+                ),
+                ("meta.json", r#"{"url":"https://example.org/","files":{}}"#),
+                ("notes.txt", "mine"),
+                ("photos/", ""),
+            ],
+        );
+        let before = listing(temp.path());
+        assert_eq!(
+            Library::new(temp.path())
+                .migrate_legacy(&OldSep, &["sep", "lwp"])
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            listing(temp.path()),
+            before,
+            "nothing moved, and no lock file made"
+        );
+    }
+
+    #[test]
+    fn a_library_of_the_old_layout_with_only_its_entries_moves() {
+        let temp = tempfile::tempdir().unwrap();
+        let files = [
+            ("entries/kant/index.html", "<h1>Kant</h1>"),
+            ("entries/kant/meta.json", &sep_record("entries/kant")),
+            ("entries/hume/index.html", "<h1>Hume</h1>"),
+        ];
+        seed(temp.path(), &files);
+        let migrated = Library::new(temp.path())
+            .migrate_legacy(&OldSep, &["sep", "lwp"])
+            .unwrap()
+            .expect("a migration");
+        assert_eq!(migrated.moved, ["entries"]);
+        assert_eq!(listing(temp.path()), moved_under_sep(&files));
     }
 
     #[test]
@@ -850,7 +1024,7 @@ mod tests {
         let before = listing(temp.path());
         assert_eq!(
             Library::new(temp.path())
-                .migrate_legacy("sep", &["sep"])
+                .migrate_legacy(&OldSep, &["sep"])
                 .unwrap(),
             None
         );
@@ -878,7 +1052,7 @@ mod tests {
             }
 
             let migrated = Library::new(temp.path())
-                .migrate_legacy("sep", &["sep", "lwp"])
+                .migrate_legacy(&OldSep, &["sep", "lwp"])
                 .unwrap()
                 .expect("the rest is moved");
             assert_eq!(migrated.moved, order[done..], "after {done} moves");
@@ -896,7 +1070,7 @@ mod tests {
                     .map(|_| {
                         scope.spawn(|| {
                             Library::new(temp.path())
-                                .migrate_legacy("sep", &["sep", "lwp"])
+                                .migrate_legacy(&OldSep, &["sep", "lwp"])
                                 .map_err(|e| e.to_string())
                         })
                     })
@@ -931,7 +1105,7 @@ mod tests {
             temp.path(),
             &[
                 ("entries/turing-machine/index.html", "<h1>old</h1>"),
-                ("meta.json", "{}"),
+                ("meta.json", &sep_record("")),
                 ("contents.html", "<ol/>"),
                 ("sep/entries/turing-machine/index.html", "<h1>new</h1>"),
                 ("sep/meta.json", "{}"),
@@ -939,7 +1113,7 @@ mod tests {
         );
         let before = listing(temp.path());
         let err = Library::new(temp.path())
-            .migrate_legacy("sep", &["sep"])
+            .migrate_legacy(&OldSep, &["sep"])
             .unwrap_err();
         assert!(matches!(err, LibraryError::BothLayouts { .. }));
         assert_eq!(
@@ -954,11 +1128,15 @@ mod tests {
         let file = tempfile::tempdir().unwrap();
         seed(
             file.path(),
-            &[("entries/x/index.html", "<p/>"), ("sep", "a file")],
+            &[
+                ("entries/x/index.html", "<p/>"),
+                ("entries/x/meta.json", &sep_record("entries/x")),
+                ("sep", "a file"),
+            ],
         );
         let before = listing(file.path());
         let err = Library::new(file.path())
-            .migrate_legacy("sep", &["sep"])
+            .migrate_legacy(&OldSep, &["sep"])
             .unwrap_err();
         assert!(matches!(err, LibraryError::NotADirectory { .. }), "{err}");
         assert_eq!(listing(file.path()), with_the_lock(before));
