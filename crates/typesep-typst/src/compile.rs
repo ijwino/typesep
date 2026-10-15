@@ -1,11 +1,13 @@
 use typst::WorldExt;
-use typst::diag::{Severity, SourceDiagnostic};
+use typst::diag::{Severity, SourceDiagnostic, SourceResult, Warned};
 use typst::foundations::{Label, Selector, Value};
 use typst::introspection::Introspector;
 use typst::utils::PicoStr;
 use typst_layout::PagedDocument;
 use typst_pdf::{PdfOptions, Timestamp};
 
+use crate::emit::Rendered;
+use crate::fonts::Fonts;
 use crate::world::TypesetWorld;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,12 +97,59 @@ fn format_diagnostic(world: &TypesetWorld, diag: &SourceDiagnostic) -> String {
     text
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many times Typst has compiled a document on this thread, which a test reads to see
+    /// that no compile is done twice.
+    pub(crate) static COMPILES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The document `world` is laid out as, or the errors Typst stopped at, with its warnings.
+/// Every compile of the crate is made here.
+fn compile(world: &TypesetWorld) -> Warned<SourceResult<PagedDocument>> {
+    #[cfg(test)]
+    COMPILES.with(|count| count.set(count.get() + 1));
+    typst::compile::<PagedDocument>(world)
+}
+
+/// A source compiled: the world it was compiled in, and what Typst made of it, kept so that
+/// the PDF is made from it without compiling it again.
+pub(crate) struct Typeset<'a> {
+    world: TypesetWorld<'a>,
+    warned: Warned<SourceResult<PagedDocument>>,
+}
+
+impl<'a> Typeset<'a> {
+    pub(crate) fn new(rendered: &Rendered, fonts: &'a Fonts) -> Self {
+        let world = TypesetWorld::new(rendered.source.clone(), &rendered.figures, fonts);
+        let warned = compile(&world);
+        Typeset { world, warned }
+    }
+
+    /// The document, if Typst laid it out.
+    pub(crate) fn document(&self) -> Option<&PagedDocument> {
+        self.warned.output.as_ref().ok()
+    }
+
+    pub(crate) fn pdf(self, creator: &str) -> Result<Compiled, CompileError> {
+        export(&self.world, self.warned, creator)
+    }
+}
+
 pub fn typesets(world: &TypesetWorld) -> bool {
-    typst::compile::<PagedDocument>(world).output.is_ok()
+    compile(world).output.is_ok()
 }
 
 pub fn compile_pdf(world: &TypesetWorld, creator: &str) -> Result<Compiled, CompileError> {
-    let warned = typst::compile::<PagedDocument>(world);
+    export(world, compile(world), creator)
+}
+
+/// The PDF of what `world` compiled to, or the errors that stopped it.
+fn export(
+    world: &TypesetWorld,
+    warned: Warned<SourceResult<PagedDocument>>,
+    creator: &str,
+) -> Result<Compiled, CompileError> {
     let warnings: Vec<String> = warned
         .warnings
         .iter()

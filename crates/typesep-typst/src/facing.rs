@@ -20,7 +20,7 @@
 //!    its own cannot be moved and runs on to the next page, which is said.
 //!
 //! Every step is a compile of the same kind as the PDF's, so the result is as deterministic as
-//! Typst is.
+//! Typst is, and the last check's compile is the one the PDF is made from.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -31,13 +31,13 @@ use typst::introspection::Introspector;
 use typst::utils::PicoStr;
 use typst_layout::PagedDocument;
 
+use crate::compile::Typeset;
 use crate::emit::{
     EmitOptions, FOOTNOTE_AT, Layout, MEASURE_NOTES, MEASURE_PIECE, MEASURE_TOP, Rendered,
     SPREAD_END, SPREAD_START, emit_with, side_of,
 };
 use crate::fonts::Fonts;
 use crate::style::TEX_PT_PER_TYPST_PT;
-use crate::world::TypesetWorld;
 
 /// How many times the spreads are typeset and checked before what is left is said.
 const ROUNDS: usize = 8;
@@ -177,40 +177,77 @@ fn footnotes(document: &PagedDocument) -> Vec<(At, At)> {
         .collect()
 }
 
-fn compile(rendered: &Rendered, fonts: &Fonts) -> Option<PagedDocument> {
-    let world = TypesetWorld::new(rendered.source.clone(), &rendered.figures, fonts);
-    typst::compile::<PagedDocument>(&world).output.ok()
+/// `doc` laid out as `layout`, the formulas whose TeX is in `raw` left as LaTeX wherever the
+/// layout sets them, as well as those `opts` names by their place.
+fn emit_raw(
+    doc: &Doc,
+    style: &Style,
+    opts: EmitOptions<'_>,
+    layout: &Layout,
+    raw: &BTreeSet<String>,
+) -> Rendered {
+    if raw.is_empty() {
+        return emit_with(&[doc], style, opts, layout);
+    }
+    let order = emit_with(&[doc], style, opts, layout).formulas;
+    let at: BTreeSet<usize> = order
+        .iter()
+        .enumerate()
+        .filter(|(_, tex)| raw.contains(*tex))
+        .map(|(at, _)| at)
+        .chain(opts.raw_math.iter().copied())
+        .collect();
+    emit_with(
+        &[doc],
+        style,
+        EmitOptions {
+            raw_math: &at,
+            ..opts
+        },
+        layout,
+    )
 }
 
 /// The facing pages of `doc`, a bilingual edition, as Typst source: measured, planned and
-/// checked as the module says. Should the measuring document not compile, the rows are set a
-/// spread each, unmeasured, and whatever stopped it stops the PDF too, to be said there.
-pub(crate) fn emit(doc: &Doc, style: &Style, opts: EmitOptions<'_>, fonts: &Fonts) -> Rendered {
+/// checked as the module says, with the formulas whose TeX is in `raw` left as LaTeX, which
+/// the order of the rows on the spreads does not change. With it, what the last check
+/// compiled it to, from which the PDF is made. Should the measuring document not compile, the
+/// rows are set a spread each, unmeasured and not compiled, and whatever stopped it stops the
+/// PDF too, to be said there.
+pub(crate) fn emit<'f>(
+    doc: &Doc,
+    style: &Style,
+    opts: EmitOptions<'_>,
+    fonts: &'f Fonts,
+    raw: &BTreeSet<String>,
+) -> (Rendered, Option<Typeset<'f>>) {
     let rows = &doc.body;
     let view = View::new(style);
-    let measured = emit_with(&[doc], style, opts, &Layout::Measure);
-    let Some(document) = compile(&measured, fonts) else {
+    let measured = emit_raw(doc, style, opts, &Layout::Measure, raw);
+    let measuring = Typeset::new(&measured, fonts);
+    let Some(document) = measuring.document() else {
         let plan = Plan {
             spreads: (0..rows.len())
                 .map(|row| whole_rows(rows, &[row]))
                 .collect(),
         };
-        return emit_with(&[doc], style, opts, &Layout::Facing(plan));
+        return (emit_raw(doc, style, opts, &Layout::Facing(plan), raw), None);
     };
-    let page = page_of(&view, &document);
-    let measures = measure(&document, rows, &page);
+    let page = page_of(&view, document);
+    let measures = measure(document, rows, &page);
 
     let mut constraints = Constraints::default();
     let mut rendered = None;
     let mut left = Vec::new();
     for _ in 0..ROUNDS {
         let plan = plan(rows, &measures, &constraints, &page);
-        let attempt = emit_with(&[doc], style, opts, &Layout::Facing(plan.clone()));
-        let Some(document) = compile(&attempt, fonts) else {
-            rendered = Some(attempt);
+        let attempt = emit_raw(doc, style, opts, &Layout::Facing(plan.clone()), raw);
+        let typeset = Typeset::new(&attempt, fonts);
+        let Some(document) = typeset.document() else {
+            rendered = Some((attempt, typeset));
             break;
         };
-        let bad = check(&document, &plan);
+        let bad = check(document, &plan);
         let mut changed = false;
         for &spread in &bad {
             changed |= constrain(&plan.spreads[spread], &mut constraints);
@@ -225,16 +262,16 @@ pub(crate) fn emit(doc: &Doc, style: &Style, opts: EmitOptions<'_>, fonts: &Font
                 Origin::Rows(_) => true,
             })
             .collect();
-        rendered = Some(attempt);
+        rendered = Some((attempt, typeset));
         if !changed {
             break;
         }
     }
-    let mut rendered = rendered.expect("at least one round");
+    let (mut rendered, typeset) = rendered.expect("at least one round");
     rendered
         .warnings
         .extend(said(rows, &measures, &constraints, &left));
-    rendered
+    (rendered, Some(typeset))
 }
 
 /// The height of the text area, the space between rows, and the footnote area's spacing, as

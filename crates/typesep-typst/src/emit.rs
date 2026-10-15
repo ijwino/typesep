@@ -1867,13 +1867,29 @@ fn render_body(docs: &[&Doc], ctx: &mut Ctx<'_>, opts: &EmitOptions<'_>) -> Stri
 
 pub fn emit_document(docs: &[&Doc], style: &Style, opts: EmitOptions<'_>) -> Rendered {
     assert!(!docs.is_empty(), "a group holds at least one entry");
-    if let ([doc], Some(fonts)) = (docs, opts.fonts)
-        && opts.parallel
-        && View::new(style).str("parallel.layout") == "facing"
-    {
-        return crate::facing::emit(doc, style, opts, fonts);
+    if let (Some(doc), Some(fonts)) = (facing(docs, style, &opts), opts.fonts) {
+        return crate::facing::emit(doc, style, opts, fonts, &BTreeSet::new()).0;
     }
     emit_with(docs, style, opts, &Layout::Flow)
+}
+
+/// The bilingual edition `docs` hold, if its PDF sets it on facing pages, which are measured
+/// with the fonts the options name.
+pub(crate) fn facing<'d>(
+    docs: &[&'d Doc],
+    style: &Style,
+    opts: &EmitOptions<'_>,
+) -> Option<&'d Doc> {
+    match docs {
+        [doc]
+            if opts.fonts.is_some()
+                && opts.parallel
+                && View::new(style).str("parallel.layout") == "facing" =>
+        {
+            Some(doc)
+        }
+        _ => None,
+    }
 }
 
 /// The Typst source of `docs` with their body laid out as `layout` says.
