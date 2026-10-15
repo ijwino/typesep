@@ -5,17 +5,31 @@ use std::process::Command;
 
 use regex::Regex;
 
+/// A work to check: its id in its source, which the binary is told with --source.
 struct Target {
-    slug: String,
+    source: String,
+    id: String,
     edition: Option<String>,
 }
 
 impl Target {
-    fn file(&self, kind: &str) -> String {
-        match &self.edition {
-            Some(edition) if edition != "live" => format!("{}-{edition}.{kind}", self.slug),
-            _ => format!("{}.{kind}", self.slug),
-        }
+    /// Where the binary writes it: a directory of its source's, so works of two sources with
+    /// one name are kept apart.
+    fn dir(&self, out: &Path) -> PathBuf {
+        out.join(&self.source)
+    }
+
+    fn file(&self, out: &Path, kind: &str) -> PathBuf {
+        let name = match &self.edition {
+            Some(edition) if edition != "live" => format!("{}-{edition}.{kind}", self.id),
+            _ => format!("{}.{kind}", self.id),
+        };
+        self.dir(out).join(name)
+    }
+
+    /// How the report names it: its source and its id.
+    fn label(&self) -> String {
+        format!("{}/{}", self.source, self.id)
     }
 }
 
@@ -55,34 +69,81 @@ impl Tally {
     }
 }
 
+/// The works the check walks, source by source in the order the binary names them: with
+/// `all`, every work the library holds, as `typesep list --source` lists it; otherwise every
+/// work with a model snapshot, the first source's at the top of `snapshots` and each other
+/// source's in the directory named by its key.
 fn targets(
     binary: &Path,
     library: &Path,
     snapshots: &Path,
     all: bool,
 ) -> Result<Vec<Target>, String> {
-    if !all {
-        let mut slugs: Vec<String> = fs::read_dir(snapshots)
-            .map_err(|err| format!("{}: {err}", snapshots.display()))?
+    let mut targets = Vec::new();
+    for (index, source) in source_keys(binary)?.into_iter().enumerate() {
+        if all {
+            targets.extend(listed(&typesep_list(binary, library, &source)?, &source));
+            continue;
+        }
+        let dir = if index == 0 {
+            snapshots.to_owned()
+        } else {
+            snapshots.join(&source)
+        };
+        if index > 0 && !dir.is_dir() {
+            continue;
+        }
+        let mut ids: Vec<String> = fs::read_dir(&dir)
+            .map_err(|err| format!("{}: {err}", dir.display()))?
             .filter_map(|entry| entry.ok())
             .filter_map(|entry| {
                 let name = entry.file_name().into_string().ok()?;
                 name.strip_suffix(".json").map(str::to_owned)
             })
             .collect();
-        slugs.sort();
-        return Ok(slugs
-            .into_iter()
-            .map(|slug| Target {
-                slug,
-                edition: None,
-            })
-            .collect());
+        ids.sort();
+        targets.extend(ids.into_iter().map(|id| Target {
+            source: source.clone(),
+            id,
+            edition: None,
+        }));
     }
+    Ok(targets)
+}
+
+/// The keys --source takes, the default first, as `typesep list --help` names them.
+fn source_keys(binary: &Path) -> Result<Vec<String>, String> {
+    let help = Command::new(binary)
+        .args(["list", "--help"])
+        .output()
+        .map_err(|err| format!("{}: {err}", binary.display()))?;
+    keys_in_help(&String::from_utf8_lossy(&help.stdout)).ok_or_else(|| {
+        format!(
+            "{} list --help names no sources for --source; build it again (make release)",
+            binary.display()
+        )
+    })
+}
+
+/// The possible values the help gives --source, wherever it wraps the lines.
+fn keys_in_help(help: &str) -> Option<Vec<String>> {
+    let help = help.split_whitespace().collect::<Vec<_>>().join(" ");
+    let values = Regex::new(r"--source <\w+> .*?\[possible values: ([^\]]+)\]").expect("regex");
+    let keys: Vec<String> = values.captures(&help)?[1]
+        .split(',')
+        .map(|key| key.trim().to_owned())
+        .filter(|key| !key.is_empty())
+        .collect();
+    (!keys.is_empty()).then_some(keys)
+}
+
+/// What `typesep list --source <source>` prints for the library.
+fn typesep_list(binary: &Path, library: &Path, source: &str) -> Result<String, String> {
     let listed = Command::new(binary)
         .arg("list")
         .arg("--library")
         .arg(library)
+        .args(["--source", source])
         .output()
         .map_err(|err| format!("{}: {err}", binary.display()))?;
     if !listed.status.success() {
@@ -93,17 +154,26 @@ fn targets(
             stderr
         });
     }
+    Ok(String::from_utf8_lossy(&listed.stdout).into_owned())
+}
+
+/// The works a listing of `source` names: each line its id, its revision, an edition other
+/// than the live one in brackets, and its title.
+fn listed(text: &str, source: &str) -> Vec<Target> {
     let edition = Regex::new(r" {2,}\[(\w+)\] ").expect("regex");
-    Ok(String::from_utf8_lossy(&listed.stdout)
-        .lines()
+    text.lines()
         .filter(|line| !line.is_empty())
         .filter_map(|line| {
-            let slug = line.split_whitespace().next()?.to_owned();
-            let rest = &line[slug.len()..];
+            let id = line.split_whitespace().next()?.to_owned();
+            let rest = &line[id.len()..];
             let edition = edition.captures(rest).map(|caps| caps[1].to_owned());
-            Some(Target { slug, edition })
+            Some(Target {
+                source: source.to_owned(),
+                id,
+                edition,
+            })
         })
-        .collect())
+        .collect()
 }
 
 fn note_line(line: &str) -> Option<String> {
@@ -150,13 +220,15 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
 
     for (index, target) in targets.iter().enumerate() {
         let mut argv = vec![
-            target.slug.clone(),
+            target.id.clone(),
+            "--source".to_owned(),
+            target.source.clone(),
             "--sections".to_owned(),
             "all".to_owned(),
             "--library".to_owned(),
             args.library.display().to_string(),
             "-o".to_owned(),
-            args.out.display().to_string(),
+            target.dir(&args.out).display().to_string(),
         ];
         if let Some(edition) = &target.edition {
             argv.push("--edition".to_owned());
@@ -191,17 +263,17 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
         if run.status.success() {
             rendered += 1;
             if !args.keep {
-                let _ = fs::remove_file(args.out.join(target.file("pdf")));
+                let _ = fs::remove_file(target.file(&args.out, "pdf"));
             }
         } else {
-            failures.push((target.slug.clone(), first_lines(&stderr, 2)));
+            failures.push((target.label(), first_lines(&stderr, 2)));
         }
         if args.verbose {
             eprintln!(
                 "[{}/{}] {} {}",
                 index + 1,
                 targets.len(),
-                target.slug,
+                target.label(),
                 if run.status.success() { "ok" } else { "FAILED" }
             );
         }
@@ -209,8 +281,8 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
 
     if !failures.is_empty() {
         eprintln!("\n{} entries did not render:", failures.len());
-        for (slug, message) in &failures {
-            eprintln!("  {slug}: {message}");
+        for (label, message) in &failures {
+            eprintln!("  {label}: {message}");
         }
     }
     report_notes(&notes);
@@ -263,7 +335,9 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
 
     for (index, target) in targets.iter().enumerate() {
         let mut argv = vec![
-            target.slug.clone(),
+            target.id.clone(),
+            "--source".to_owned(),
+            target.source.clone(),
             "--sections".to_owned(),
             "all".to_owned(),
             "--format".to_owned(),
@@ -271,7 +345,7 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
             "--library".to_owned(),
             args.library.display().to_string(),
             "-o".to_owned(),
-            args.out.display().to_string(),
+            target.dir(&args.out).display().to_string(),
         ];
         if let Some(edition) = &target.edition {
             argv.push("--edition".to_owned());
@@ -287,11 +361,11 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
                 notes.add(&note);
             }
         }
-        let file = args.out.join(target.file("epub"));
+        let file = target.file(&args.out, "epub");
         if !run.status.success() || !file.exists() {
             let first = first_lines(&stderr, 2);
             failures.push((
-                target.slug.clone(),
+                target.label(),
                 if first.is_empty() {
                     "the EPUB was not built".to_owned()
                 } else {
@@ -303,7 +377,7 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
                     "[{}/{}] {} NOT BUILT",
                     index + 1,
                     targets.len(),
-                    target.slug
+                    target.label()
                 );
             }
             continue;
@@ -342,14 +416,14 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
             } else {
                 first.join("\n    ")
             };
-            failures.push((target.slug.clone(), message));
+            failures.push((target.label(), message));
         }
         if args.verbose {
             eprintln!(
                 "[{}/{}] {} {}",
                 index + 1,
                 targets.len(),
-                target.slug,
+                target.label(),
                 if checked.status.success() {
                     "ok"
                 } else {
@@ -361,8 +435,8 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
 
     if !failures.is_empty() {
         eprintln!("\n{} entries did not pass:", failures.len());
-        for (slug, message) in &failures {
-            eprintln!("  {slug}: {message}");
+        for (label, message) in &failures {
+            eprintln!("  {label}: {message}");
         }
     }
     if !complaints.is_empty() {
@@ -458,14 +532,95 @@ fn exit_code(ok: bool) -> std::process::ExitCode {
 mod tests {
     use super::*;
 
+    fn target(source: &str, id: &str, edition: Option<&str>) -> Target {
+        Target {
+            source: source.to_owned(),
+            id: id.to_owned(),
+            edition: edition.map(str::to_owned),
+        }
+    }
+
     #[test]
     fn an_archived_edition_is_looked_for_under_its_own_name() {
-        let target = |edition: Option<&str>| Target {
-            slug: "kant".to_owned(),
-            edition: edition.map(str::to_owned),
-        };
-        assert_eq!(target(None).file("pdf"), "kant.pdf");
-        assert_eq!(target(Some("live")).file("pdf"), "kant.pdf");
-        assert_eq!(target(Some("sum2020")).file("epub"), "kant-sum2020.epub");
+        let out = Path::new("out");
+        let kant = |edition| target("sep", "kant", edition);
+        assert_eq!(kant(None).file(out, "pdf"), out.join("sep/kant.pdf"));
+        assert_eq!(
+            kant(Some("live")).file(out, "pdf"),
+            out.join("sep/kant.pdf")
+        );
+        assert_eq!(
+            kant(Some("sum2020")).file(out, "epub"),
+            out.join("sep/kant-sum2020.epub")
+        );
+    }
+
+    #[test]
+    fn works_of_two_sources_with_one_name_are_written_apart() {
+        let out = Path::new("out");
+        let (sep, lwp) = (target("sep", "kant", None), target("lwp", "kant", None));
+        assert_ne!(sep.file(out, "pdf"), lwp.file(out, "pdf"));
+        assert_eq!(lwp.dir(out), out.join("lwp"));
+        assert_eq!(
+            (sep.label(), lwp.label()),
+            ("sep/kant".into(), "lwp/kant".into())
+        );
+    }
+
+    #[test]
+    fn a_listing_names_each_work_with_the_source_it_was_asked_for() {
+        // As `typesep list --source` prints them: the id padded to 28, the revision to 26.
+        let sep = "made-up                      Fri Feb 28, 2025           A Made-Up Entry\n\
+                   made-up                      Mon Mar 3, 2020            [sum2020] A Made-Up Entry\n\
+                   undated                      -                          Undated\n";
+        let works: Vec<(String, String, Option<String>)> = listed(sep, "sep")
+            .into_iter()
+            .map(|work| (work.source, work.id, work.edition))
+            .collect();
+        assert_eq!(
+            works,
+            [
+                ("sep".into(), "made-up".into(), None),
+                ("sep".into(), "made-up".into(), Some("sum2020".into())),
+                ("sep".into(), "undated".into(), None),
+            ]
+        );
+
+        // A title longer than the column, in parentheses and in a script of its own.
+        let lwp = "Some_Rather_Long_Remarks_(English) 11293                      \
+                   Some Rather Long Remarks (English)\n\
+                   ملاحظات 101                        ملاحظات\n";
+        let works: Vec<(String, String, Option<String>)> = listed(lwp, "lwp")
+            .into_iter()
+            .map(|work| (work.source, work.id, work.edition))
+            .collect();
+        assert_eq!(
+            works,
+            [
+                (
+                    "lwp".into(),
+                    "Some_Rather_Long_Remarks_(English)".into(),
+                    None
+                ),
+                ("lwp".into(), "ملاحظات".into(), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_sources_are_the_values_the_help_gives_source_however_it_wraps() {
+        let help = "Usage: typesep list [OPTIONS]\n\n\
+                    Options:\n      \
+                    --library <dir>  Where fetched pages and figures are kept [default: \
+                    TYPESEP_LIBRARY or the\n                       platform data directory]\n      \
+                    --source <key>   Only the works of this source: sep (entries) or lwp \
+                    (texts) [default: every\n                       source's] [possible \
+                    values: sep,\n                       lwp]\n  \
+                    -h, --help           Print help\n";
+        assert_eq!(keys_in_help(help), Some(vec!["sep".into(), "lwp".into()]));
+        assert_eq!(
+            keys_in_help("Usage: typesep list [OPTIONS]\n      --library <dir>  Where\n"),
+            None
+        );
     }
 }

@@ -28,9 +28,9 @@ struct Cli {
 enum Task {
     /// Compare the model snapshots with what `dump model` prints, and report matching / total.
     Parity(Parity),
-    /// Typeset every fixture entry and report rendered / total.
+    /// Typeset every fixture entry and text and report rendered / total.
     RenderCheck(Walk),
-    /// Build every fixture entry as an EPUB, validate it with EPUBCheck, and report passing / total.
+    /// Build every fixture entry and text as an EPUB, validate it with EPUBCheck, and report passing / total.
     EpubCheck(Walk),
     /// Write THIRD-PARTY-LICENSES.txt, or resolve every license expression without writing it.
     Licenses(Licenses),
@@ -46,7 +46,7 @@ struct Walk {
     /// Where the outputs go while they are being checked.
     #[arg(long, value_name = "DIR")]
     out: Option<PathBuf>,
-    /// Walk the whole library instead of the fixture set.
+    /// Walk the whole library, every source of it, instead of the fixture set.
     #[arg(long)]
     all: bool,
     /// Leave the outputs behind instead of deleting them as they pass; the library copy goes
