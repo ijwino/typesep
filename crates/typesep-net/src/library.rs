@@ -133,6 +133,52 @@ pub fn is_safe_segment(segment: &str) -> bool {
     }
 }
 
+/// The longest name the library gives a file or a directory, in bytes: what Linux and macOS
+/// allow, and what NTFS allows of a name in ASCII, as the library's names are.
+pub const MAX_NAME: usize = 255;
+
+/// What stands between the part of a name kept and the hash of the whole in a name `fit_name`
+/// shortened.
+pub const FIT_MARK: char = '~';
+
+/// The most bytes of an extension `fit_name` keeps at the end of a name it shortens.
+const KEPT_EXTENSION: usize = 16;
+
+/// `name` when it is at most `limit` bytes long; else as much of it as fits, cut neither inside
+/// a character nor inside a `%XX`, then `~` and 16 hex digits of a hash of the whole name,
+/// then its extension, if it has a short one. A name so shortened cannot be read back; it
+/// stays the same from one run, platform and version to the next.
+pub fn fit_name(name: &str, limit: usize) -> std::borrow::Cow<'_, str> {
+    if name.len() <= limit {
+        return name.into();
+    }
+    let extension = name
+        .rfind('.')
+        .map(|dot| &name[dot..])
+        .filter(|extension| extension.len() <= KEPT_EXTENSION && !extension.contains('/'))
+        .unwrap_or("");
+    let hash = format!(
+        "{FIT_MARK}{:016x}",
+        siphasher::sip::SipHasher13::new().hash(name.as_bytes())
+    );
+    let stem = &name[..name.len() - extension.len()];
+    // A `%` among the last two bytes kept is an escape cut in two.
+    let in_escape = |cut: usize| {
+        stem.as_bytes()[..cut]
+            .iter()
+            .rev()
+            .take(2)
+            .any(|&b| b == b'%')
+    };
+    let mut cut = limit
+        .saturating_sub(hash.len() + extension.len())
+        .min(stem.len());
+    while cut > 0 && (!stem.is_char_boundary(cut) || in_escape(cut)) {
+        cut -= 1;
+    }
+    format!("{}{hash}{extension}", &stem[..cut]).into()
+}
+
 pub fn now_iso8601() -> String {
     let now = time::OffsetDateTime::now_utc();
     format!(
@@ -174,7 +220,7 @@ fn write_atomically(target: &Path, bytes: &[u8]) -> Result<(), LibraryError> {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let tmp = target.with_file_name(format!("{name}.{}.tmp", std::process::id()));
+    let tmp = target.with_file_name(temp_name(&name, std::process::id()));
     let written = fs::write(&tmp, bytes)
         .map_err(|e| io_error(&tmp, e))
         .and_then(|()| fs::rename(&tmp, target).map_err(|e| io_error(target, e)));
@@ -182,6 +228,13 @@ fn write_atomically(target: &Path, bytes: &[u8]) -> Result<(), LibraryError> {
         let _ = fs::remove_file(&tmp);
     }
     written
+}
+
+/// The name `write_atomically` writes `name` under first, `<name>.<pid>.tmp`, with `name`
+/// shortened when that would be longer than a name can be.
+fn temp_name(name: &str, pid: u32) -> String {
+    let suffix = format!(".{pid}.tmp");
+    format!("{}{suffix}", fit_name(name, MAX_NAME - suffix.len()))
 }
 
 /// What `Library::migrate_legacy` moved.
@@ -495,7 +548,14 @@ impl<'a> Store<'a> {
         } else {
             base.join(&place.unit)
         };
-        Ok(base.join(format!("{}{suffix}", place.file)))
+        let file = format!("{}{suffix}", place.file);
+        let (dirs, name) = file.rsplit_once('/').unwrap_or(("", &file));
+        let base = if dirs.is_empty() {
+            base
+        } else {
+            base.join(dirs)
+        };
+        Ok(base.join(fit_name(name, MAX_NAME).as_ref()))
     }
 
     /// The files that may hold what `url` names, the best first: the file fetched from it, then
@@ -736,6 +796,61 @@ mod tests {
         assert_eq!(&stamp[10..11], "T");
         assert_eq!(&stamp[23..], "Z");
         assert!(stamp[..4].chars().all(|c| c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn a_name_too_long_is_cut_where_no_character_or_escape_is_cut_and_a_hash_of_it_added() {
+        assert_eq!(
+            fit_name("short.png", MAX_NAME),
+            "short.png",
+            "a name that fits"
+        );
+        let exact = "a".repeat(MAX_NAME);
+        assert_eq!(fit_name(&exact, MAX_NAME), exact.as_str());
+
+        let escaped = "%E0%A4%A4".repeat(40);
+        let fitted = fit_name(&escaped, MAX_NAME);
+        assert!(fitted.len() <= MAX_NAME, "{}", fitted.len());
+        let (kept, hash) = fitted.rsplit_once(FIT_MARK).unwrap();
+        assert!(escaped.starts_with(kept));
+        assert_eq!(kept.len() % 3, 0, "cut between escapes: {kept}");
+        assert_eq!(hash.len(), 16);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(fit_name(&escaped, MAX_NAME), fitted, "the same every time");
+        assert_ne!(
+            fit_name(&format!("{escaped}x"), MAX_NAME),
+            fitted,
+            "names alike as far as the cut differ by their hash"
+        );
+
+        let image = format!("{}.png", "é".repeat(200));
+        let fitted = fit_name(&image, MAX_NAME);
+        assert!(
+            fitted.len() <= MAX_NAME && fitted.ends_with(".png"),
+            "{fitted}"
+        );
+        assert!(
+            fitted.starts_with("éé"),
+            "cut at a character's edge: {fitted}"
+        );
+    }
+
+    #[test]
+    fn a_file_with_a_name_as_long_as_a_name_can_be_is_written_through_a_name_as_long() {
+        let temp = temp_name(&"a".repeat(MAX_NAME), u32::MAX);
+        assert!(temp.len() <= MAX_NAME, "{}", temp.len());
+        assert!(temp.ends_with(&format!(".{}.tmp", u32::MAX)));
+        assert_eq!(temp_name("meta.json", 7), "meta.json.7.tmp");
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("b".repeat(MAX_NAME));
+        write_atomically(&target, b"bytes").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"bytes");
+        assert_eq!(
+            fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "no temporary left"
+        );
     }
 
     #[test]

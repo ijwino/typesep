@@ -19,6 +19,7 @@ dirs.workspace = true
 thiserror.workspace = true
 ureq.workspace = true
 time.workspace = true
+siphasher.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

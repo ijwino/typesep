@@ -259,6 +259,42 @@ mod tests {
     }
 
     #[test]
+    fn a_text_whose_title_is_too_long_to_name_its_directory_is_kept_and_listed_by_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = Library::new(temp.path());
+        library.init().unwrap();
+        let title = "तार्किक_दर्शन_तार्किक_दर्शन_तार्किक_दर्शन";
+        let work = Lwp.resolve(title, None).unwrap();
+        assert_eq!(work.id, title);
+
+        let mut harness = Harness::new(vec![Ok(ok(&api_url(title), &answer(3, "<p>Text.</p>")))]);
+        let loaded = load(
+            &mut Net::fetching(library.store(&Lwp), &mut harness.fetcher),
+            &work,
+        )
+        .unwrap();
+        let unit = Lwp.place(&work.url).unwrap().unit;
+        let dir = temp.path().join("lwp").join(&unit);
+        assert!(dir.join("parse.json").is_file(), "{unit}");
+        assert!(
+            dir.file_name().unwrap().len() <= typesep_net::library::MAX_NAME,
+            "{unit}"
+        );
+
+        let held = Lwp.held(&library.store(&Lwp));
+        assert_eq!(held.len(), 1);
+        assert_eq!(
+            held[0].id, title,
+            "the title read from what the library records"
+        );
+        assert_eq!(held[0].url, work.url);
+        let again = Lwp.resolve(&held[0].url, None).unwrap();
+        let reread = load(&mut Net::offline(library.store(&Lwp)), &again).unwrap();
+        assert!(reread.from_cache);
+        assert_eq!(reread.doc, loaded.doc);
+    }
+
+    #[test]
     fn texts_of_the_project_make_a_volume_of_its_wording_with_each_texts_rights() {
         let doc = |id: &str, terms: &str| {
             let answer = answer(1, "<p>Text.</p>")

@@ -3,7 +3,7 @@
 //! they are kept at.
 
 use typesep_model::url::percent_decode;
-use typesep_net::library::{Place, PlaceError, is_safe_segment};
+use typesep_net::library::{FIT_MARK, MAX_NAME, Place, PlaceError, fit_name, is_safe_segment};
 use url::Url;
 
 /// The site, as every address the library keeps is written.
@@ -197,14 +197,18 @@ pub fn full_size(src: &str) -> String {
 }
 
 /// A title written so it can name a directory, and be read back: letters, digits, `-`, `_`,
-/// `(`, `)` and `,` as they are, every other character as `%` and the hex of its bytes.
+/// `(`, `)` and `,` as they are, every other character as `%` and the hex of its bytes. A
+/// title that would be written longer than a name can be, as one in a script beyond Latin
+/// soon is, is shortened as `fit_name` shortens it, and cannot be read back.
 pub fn unit_name(title: &str) -> String {
-    percent_encode(title, |c| c.is_ascii_alphanumeric() || "-_(),".contains(c))
+    let name = percent_encode(title, |c| c.is_ascii_alphanumeric() || "-_(),".contains(c));
+    fit_name(&name, MAX_NAME).into_owned()
 }
 
-/// The title a unit's name was written from.
-pub fn title_of_unit(name: &str) -> String {
-    percent_decode(name)
+/// The title a unit's name was written from; none for a name shortened to fit, whose title
+/// is the one its `meta.json` records the address of.
+pub fn title_of_unit(name: &str) -> Option<String> {
+    (!name.contains(FIT_MARK)).then(|| percent_decode(name))
 }
 
 /// Where the library keeps what `url` names: a text's API answer, whichever address of the
@@ -230,6 +234,7 @@ pub fn place_for(url: &str) -> Result<Place, PlaceError> {
         if *file == typesep_net::library::META {
             return Err(PlaceError::MetaName(url.to_owned()));
         }
+        let file = fit_name(file, MAX_NAME);
         let unit = std::iter::once(IMAGES_DIR)
             .chain(dirs.iter().copied())
             .collect::<Vec<_>>()
@@ -240,7 +245,7 @@ pub fn place_for(url: &str) -> Result<Place, PlaceError> {
                 dirs.iter().map(|d| format!("{d}/")).collect::<String>()
             ),
             unit,
-            file: (*file).to_owned(),
+            file: file.into_owned(),
         });
     }
     let title = title_in(&parsed)
@@ -414,7 +419,7 @@ mod tests {
         );
         assert!(place.unit.split('/').all(is_safe_segment));
         assert_eq!(
-            title_of_unit(&unit_name("Notes_Dictated_to_G.E._Moore_in_Norway")),
+            title_of_unit(&unit_name("Notes_Dictated_to_G.E._Moore_in_Norway")).unwrap(),
             "Notes_Dictated_to_G.E._Moore_in_Norway",
             "a unit name reads back as its title"
         );
@@ -440,6 +445,48 @@ mod tests {
             place_for("https://www.wittgensteinproject.org/w/images/a/.x"),
             Err(PlaceError::UnsafeSegment { .. })
         ));
+    }
+
+    #[test]
+    fn a_title_or_an_image_too_long_to_name_a_file_as_it_is_is_shortened_to_fit() {
+        // 75 bytes, written in 219, as the Hindi Tractatus's 86 are in 254: it fits as it is,
+        // and reads back.
+        let fits = "तार्किक_दर्शन_तार्किक_दर्शन";
+        let name = unit_name(fits);
+        assert_eq!(name.len(), 219);
+        assert_eq!(title_of_unit(&name).as_deref(), Some(fits));
+
+        let longer = format!("{fits}_तार्किक");
+        let name = unit_name(&longer);
+        assert!(name.len() <= MAX_NAME, "{}", name.len());
+        assert!(is_safe_segment(&name), "{name}");
+        assert!(name.starts_with(&unit_name(fits)[..200]), "{name}");
+        assert_eq!(
+            title_of_unit(&name),
+            None,
+            "a shortened name is not read back"
+        );
+        assert_ne!(unit_name(&format!("{longer}_2")), name);
+        let place = place_for(&page_url(&longer)).unwrap();
+        assert_eq!(place.unit, format!("pages/{name}"));
+        assert_eq!(
+            title_of(&place.unit_url).unwrap(),
+            longer,
+            "its address names it"
+        );
+
+        let image = format!(
+            "https://www.wittgensteinproject.org/w/images/e/e7/{}.png",
+            "%E0%A4%A4".repeat(40)
+        );
+        let place = place_for(&image).unwrap();
+        assert!(place.file.len() <= MAX_NAME, "{}", place.file);
+        assert!(place.file.ends_with(".png") && is_safe_segment(&place.file));
+        assert_eq!(
+            place_for(&image).unwrap(),
+            place,
+            "the same place every time"
+        );
     }
 
     #[test]
