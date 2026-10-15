@@ -184,28 +184,15 @@ pub fn trim_inline(mut out: Vec<Inline>) -> Vec<Inline> {
     out
 }
 
-/// The text of running text, markup and all left out.
+/// The text of running text, markup and all left out, as the page's text reads: a line break
+/// as a newline and a formula as its TeX untrimmed, where
+/// [`typesep_model::walk::plain_text`] makes a space of the one and trims the other.
 pub fn plain(nodes: &[Inline]) -> String {
-    let mut out = String::new();
-    for node in nodes {
-        match node {
-            Inline::Text { value } => out.push_str(value),
-            Inline::Break => out.push('\n'),
-            Inline::Emph { children }
-            | Inline::Strong { children }
-            | Inline::Sub { children }
-            | Inline::Sup { children }
-            | Inline::Code { children }
-            | Inline::Link { children, .. }
-            | Inline::Spaced { children }
-            | Inline::SmallCaps { children }
-            | Inline::Decorated { children, .. }
-            | Inline::MarginNote { children } => out.push_str(&plain(children)),
-            Inline::Math { tex, .. } => out.push_str(tex),
-            Inline::NoteRef(_) | Inline::Anchor { .. } | Inline::Figure(_) => {}
-        }
-    }
-    out
+    typesep_model::walk::plain_text_with(nodes, &mut |node, out| match node {
+        Inline::Break => out.push('\n'),
+        Inline::Math { tex, .. } => out.push_str(tex),
+        _ => {}
+    })
 }
 
 // The limits browsers clamp spans to.

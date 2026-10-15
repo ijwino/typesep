@@ -395,21 +395,10 @@ fn trim_inline(mut out: Vec<Inline>) -> Vec<Inline> {
     out
 }
 
+/// The words of running text, which a note's label is matched by: its formulas and line breaks
+/// say nothing.
 fn plain(nodes: &[Inline]) -> String {
-    let mut out = String::new();
-    for node in nodes {
-        match node {
-            Inline::Text { value } => out.push_str(value),
-            Inline::Emph { children }
-            | Inline::Strong { children }
-            | Inline::Sub { children }
-            | Inline::Sup { children }
-            | Inline::Code { children }
-            | Inline::Link { children, .. } => out.push_str(&plain(children)),
-            _ => {}
-        }
-    }
-    out
+    typesep_model::walk::plain_text_with(nodes, &mut |_, _| {})
 }
 
 fn collect_entry_links(document: &Html, base: &str) -> EntryLinks {
