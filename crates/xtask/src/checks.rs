@@ -219,25 +219,7 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
     let mut tallest = 0f64;
 
     for (index, target) in targets.iter().enumerate() {
-        let mut argv = vec![
-            target.id.clone(),
-            "--source".to_owned(),
-            target.source.clone(),
-            "--sections".to_owned(),
-            "all".to_owned(),
-            "--library".to_owned(),
-            args.library.display().to_string(),
-            "-o".to_owned(),
-            target.dir(&args.out).display().to_string(),
-        ];
-        if let Some(edition) = &target.edition {
-            argv.push("--edition".to_owned());
-            argv.push(edition.clone());
-        }
-        let run = Command::new(&args.binary)
-            .args(&argv)
-            .output()
-            .unwrap_or_else(|err| super::fail(&format!("{}: {err}", args.binary.display())));
+        let run = typeset(&args, target, "pdf");
         let stderr = String::from_utf8_lossy(&run.stderr).into_owned();
         let mut moved_here = 0usize;
         for line in stderr.lines() {
@@ -260,13 +242,16 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
         if moved_here > 0 {
             moved_entries += 1;
         }
-        if run.status.success() {
+        let asked = super::asked_the_network(&stderr);
+        let ok = run.status.success() && asked.is_none();
+        if ok {
             rendered += 1;
             if !args.keep {
                 let _ = fs::remove_file(target.file(&args.out, "pdf"));
             }
         } else {
-            failures.push((target.label(), first_lines(&stderr, 2)));
+            let message = asked.unwrap_or_else(|| super::last_lines(&stderr, 2));
+            failures.push((target.label(), message));
         }
         if args.verbose {
             eprintln!(
@@ -274,7 +259,7 @@ pub fn render_check(args: CheckArgs) -> std::process::ExitCode {
                 index + 1,
                 targets.len(),
                 target.label(),
-                if run.status.success() { "ok" } else { "FAILED" }
+                if ok { "ok" } else { "FAILED" }
             );
         }
     }
@@ -334,27 +319,7 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
     let mut passing = 0usize;
 
     for (index, target) in targets.iter().enumerate() {
-        let mut argv = vec![
-            target.id.clone(),
-            "--source".to_owned(),
-            target.source.clone(),
-            "--sections".to_owned(),
-            "all".to_owned(),
-            "--format".to_owned(),
-            "epub".to_owned(),
-            "--library".to_owned(),
-            args.library.display().to_string(),
-            "-o".to_owned(),
-            target.dir(&args.out).display().to_string(),
-        ];
-        if let Some(edition) = &target.edition {
-            argv.push("--edition".to_owned());
-            argv.push(edition.clone());
-        }
-        let run = Command::new(&args.binary)
-            .args(&argv)
-            .output()
-            .unwrap_or_else(|err| super::fail(&format!("{}: {err}", args.binary.display())));
+        let run = typeset(&args, target, "epub");
         let stderr = String::from_utf8_lossy(&run.stderr).into_owned();
         for line in stderr.lines() {
             if let Some(note) = note_line(line.trim_end()) {
@@ -362,16 +327,14 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
             }
         }
         let file = target.file(&args.out, "epub");
-        if !run.status.success() || !file.exists() {
-            let first = first_lines(&stderr, 2);
-            failures.push((
-                target.label(),
-                if first.is_empty() {
-                    "the EPUB was not built".to_owned()
-                } else {
-                    first
-                },
-            ));
+        let asked = super::asked_the_network(&stderr);
+        if !run.status.success() || !file.exists() || asked.is_some() {
+            let message = match asked {
+                Some(asked) => asked,
+                None if run.status.success() => "the EPUB was not built".to_owned(),
+                None => super::last_lines(&stderr, 2),
+            };
+            failures.push((target.label(), message));
             if args.verbose {
                 eprintln!(
                     "[{}/{}] {} NOT BUILT",
@@ -455,6 +418,25 @@ pub fn epub_check(args: CheckArgs, root: &Path) -> std::process::ExitCode {
     exit_code(passing == targets.len())
 }
 
+/// Typesets `target` to `format`, every section, with no way to the network and -v, so that
+/// whatever the library lacks shows as a request instead of being fetched.
+fn typeset(args: &CheckArgs, target: &Target, format: &str) -> std::process::Output {
+    let mut command = Command::new(&args.binary);
+    super::offline(&mut command)
+        .arg(&target.id)
+        .args(["--source", &target.source, "--sections", "all"])
+        .args(["--format", format, "-v", "--library"])
+        .arg(&args.library)
+        .arg("-o")
+        .arg(target.dir(&args.out));
+    if let Some(edition) = &target.edition {
+        command.args(["--edition", edition]);
+    }
+    command
+        .output()
+        .unwrap_or_else(|err| super::fail(&format!("{}: {err}", args.binary.display())))
+}
+
 /// The arguments with the library replaced by a fresh copy of it at `args.copy`. A build
 /// writes to the library it reads: it records the work it read, fetches a figure the library
 /// lacks, and moves a library of an older layout into the present one. So the check reads the
@@ -505,16 +487,6 @@ fn epubcheck_jar(root: &Path) -> Option<PathBuf> {
     found.into_iter().next()
 }
 
-fn first_lines(text: &str, count: usize) -> String {
-    text.lines()
-        .filter(|line| !line.is_empty())
-        .take(count)
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .to_owned()
-}
-
 fn trim_float(value: f64) -> String {
     let text = format!("{value}");
     text.trim_end_matches(".0").to_owned()
@@ -538,6 +510,27 @@ mod tests {
             id: id.to_owned(),
             edition: edition.map(str::to_owned),
         }
+    }
+
+    #[test]
+    fn a_work_that_asked_the_network_for_anything_fails_with_what_it_asked_for() {
+        let read = "library /tmp/library\nstyle   the default preset\nfonts   11 families\n\
+                    reading made-up\n  typesetting made-up\n  59 pages\n  typeset in 0.51 s\n";
+        assert_eq!(crate::asked_the_network(read), None);
+
+        let fetched = "reading made-up\n  GET https://plato.stanford.edu/entries/made-up/a.svg\n  \
+                       Connection refused; retrying in 5s\n  \
+                       GET https://plato.stanford.edu/entries/made-up/a.svg (retry 1)\n  \
+                       skipping image https://plato.stanford.edu/entries/made-up/a.svg: \
+                       Connection refused\n  59 pages\n";
+        assert_eq!(
+            crate::asked_the_network(fetched).as_deref(),
+            Some(
+                "the library lacks what it asked the network for: \
+                 \x20 GET https://plato.stanford.edu/entries/made-up/a.svg; \
+                 \x20 GET https://plato.stanford.edu/entries/made-up/a.svg (retry 1)"
+            )
+        );
     }
 
     #[test]

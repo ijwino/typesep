@@ -361,12 +361,9 @@ fn write_font_config(work: &Path) {
 /// the network unreachable: whatever the library lacks fails instead of being fetched.
 fn typesep(args: &BaselineArgs) -> Command {
     let mut command = Command::new(&args.binary);
-    command
+    super::offline(&mut command)
         .current_dir(&args.work)
         .env("FONTCONFIG_FILE", args.work.join("fonts.conf"))
-        .env("ALL_PROXY", "http://127.0.0.1:9")
-        .env_remove("NO_PROXY")
-        .env_remove("no_proxy")
         .env_remove("TYPESEP_FONTS")
         .env_remove("TYPESEP_LIBRARY");
     command
@@ -388,17 +385,10 @@ fn generate(
         .map_err(|err| format!("{}: {err}", args.binary.display()))?;
     let stderr = String::from_utf8_lossy(&build.stderr).into_owned();
     if !build.status.success() {
-        return Err(last_lines(&stderr, 3));
+        return Err(super::last_lines(&stderr, 3));
     }
-    let requests: Vec<&str> = stderr
-        .lines()
-        .filter(|line| line.starts_with("  GET "))
-        .collect();
-    if !requests.is_empty() {
-        return Err(format!(
-            "the library lacks what it asked the network for: {}",
-            requests.join("; ")
-        ));
+    if let Some(message) = super::asked_the_network(&stderr) {
+        return Err(message);
     }
     let pages_re = Regex::new(r"^ {2}(\d+) pages$").expect("regex");
     let pages: Vec<usize> = stderr
@@ -432,7 +422,7 @@ fn generate(
         .map_err(|err| format!("{}: {err}", args.binary.display()))?;
     if !dump.status.success() {
         let stderr = String::from_utf8_lossy(&dump.stderr);
-        return Err(format!("dump typst: {}", last_lines(&stderr, 3)));
+        return Err(format!("dump typst: {}", super::last_lines(&stderr, 3)));
     }
     // The test reads a source the recovery loop left alone from dump typst, which compiles
     // nothing, so a source that differs from it has to be one the loop re-emitted.
@@ -457,18 +447,6 @@ fn generate(
         recovered,
         args: invocation.args.clone(),
     })
-}
-
-fn last_lines(text: &str, count: usize) -> String {
-    let lines: Vec<&str> = text
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect();
-    lines[lines.len().saturating_sub(count)..]
-        .iter()
-        .map(|line| line.trim())
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn only_file(dir: &Path, extension: &str) -> Result<PathBuf, String> {

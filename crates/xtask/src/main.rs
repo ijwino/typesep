@@ -403,6 +403,43 @@ fn shell_quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
 }
 
+/// Leaves `command` no way to the network: every connection goes to a proxy that is not
+/// there, and no host is exempt. Whatever the library lacks then fails instead of being
+/// fetched, and a run with -v says each request it tried.
+pub(crate) fn offline(command: &mut Command) -> &mut Command {
+    command
+        .env("ALL_PROXY", "http://127.0.0.1:9")
+        .env_remove("NO_PROXY")
+        .env_remove("no_proxy")
+}
+
+/// What a run with -v asked the network for, said as a failure; none when it asked nothing.
+pub(crate) fn asked_the_network(stderr: &str) -> Option<String> {
+    let requests: Vec<&str> = stderr
+        .lines()
+        .filter(|line| line.starts_with("  GET "))
+        .collect();
+    (!requests.is_empty()).then(|| {
+        format!(
+            "the library lacks what it asked the network for: {}",
+            requests.join("; ")
+        )
+    })
+}
+
+/// The last `count` lines of `text` that are not blank, on one line.
+pub(crate) fn last_lines(text: &str, count: usize) -> String {
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    lines[lines.len().saturating_sub(count)..]
+        .iter()
+        .map(|line| line.trim())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Copies the directory `from` and everything in it to `to`.
 pub(crate) fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     fs::create_dir_all(to)?;
