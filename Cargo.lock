@@ -2630,65 +2630,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
-name = "sep-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "clap_complete",
- "clap_mangen",
- "dirs 7.0.0",
- "regex",
- "sep-core",
- "sep-epub",
- "sep-typst",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "sep-core"
-version = "0.1.0"
-dependencies = [
- "dirs 7.0.0",
- "ego-tree",
- "regex",
- "saphyr-parser",
- "scraper",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "time",
- "ureq",
- "url",
-]
-
-[[package]]
-name = "sep-epub"
-version = "0.1.0"
-dependencies = [
- "sep-core",
- "sep-typst",
- "time",
- "zip",
-]
-
-[[package]]
-name = "sep-typst"
-version = "0.1.0"
-dependencies = [
- "mitex",
- "regex",
- "sep-core",
- "time",
- "typst",
- "typst-html",
- "typst-kit",
- "typst-layout",
- "typst-pdf",
-]
-
-[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2836,6 +2777,37 @@ name = "smallvec"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9be42f50aa861c555654aa3a37f52f4b1074bacf4e48fe0ef7fa584e80f1f0f"
+
+[[package]]
+name = "source-lwp"
+version = "0.1.0"
+dependencies = [
+ "scraper",
+ "serde_json",
+ "tempfile",
+ "typesep-html",
+ "typesep-model",
+ "typesep-net",
+ "url",
+]
+
+[[package]]
+name = "source-sep"
+version = "0.1.0"
+dependencies = [
+ "ego-tree",
+ "regex",
+ "scraper",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "typesep-html",
+ "typesep-model",
+ "typesep-net",
+ "typesep-style",
+ "url",
+]
 
 [[package]]
 name = "spin"
@@ -3239,6 +3211,116 @@ name = "typed-path"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e"
+
+[[package]]
+name = "typesep"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "clap_complete",
+ "clap_mangen",
+ "dirs 7.0.0",
+ "regex",
+ "serde_json",
+ "source-lwp",
+ "source-sep",
+ "tempfile",
+ "typesep-compose",
+ "typesep-epub",
+ "typesep-html",
+ "typesep-model",
+ "typesep-net",
+ "typesep-style",
+ "typesep-typst",
+ "zip",
+]
+
+[[package]]
+name = "typesep-compose"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror",
+ "typesep-model",
+]
+
+[[package]]
+name = "typesep-epub"
+version = "0.1.0"
+dependencies = [
+ "roxmltree 0.21.1",
+ "time",
+ "typesep-model",
+ "typesep-style",
+ "typesep-typst",
+ "zip",
+]
+
+[[package]]
+name = "typesep-html"
+version = "0.1.0"
+dependencies = [
+ "ego-tree",
+ "regex",
+ "scraper",
+ "serde_json",
+ "typesep-model",
+ "url",
+]
+
+[[package]]
+name = "typesep-model"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "typesep-net"
+version = "0.1.0"
+dependencies = [
+ "dirs 7.0.0",
+ "serde",
+ "serde_json",
+ "siphasher",
+ "tempfile",
+ "thiserror",
+ "time",
+ "typesep-model",
+ "ureq",
+ "url",
+]
+
+[[package]]
+name = "typesep-style"
+version = "0.1.0"
+dependencies = [
+ "saphyr-parser",
+ "tempfile",
+ "thiserror",
+ "typesep-html",
+]
+
+[[package]]
+name = "typesep-typst"
+version = "0.1.0"
+dependencies = [
+ "hypher",
+ "mitex",
+ "regex",
+ "tempfile",
+ "time",
+ "typesep-compose",
+ "typesep-model",
+ "typesep-style",
+ "typst",
+ "typst-html",
+ "typst-kit",
+ "typst-layout",
+ "typst-pdf",
+ "unicode-script",
+]
 
 [[package]]
 name = "typst"
@@ -4243,6 +4325,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "zip",
 ]
 
 [[package]]

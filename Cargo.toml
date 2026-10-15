@@ -1,6 +1,18 @@
 [workspace]
 resolver = "3"
-members = ["crates/sep-core", "crates/sep-typst", "crates/sep-epub", "crates/sep-cli", "crates/xtask"]
+members = [
+    "crates/typesep-model",
+    "crates/typesep-style",
+    "crates/typesep-html",
+    "crates/typesep-net",
+    "crates/typesep-typst",
+    "crates/typesep-epub",
+    "crates/typesep-compose",
+    "crates/source-sep",
+    "crates/source-lwp",
+    "crates/typesep",
+    "crates/xtask",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,9 +21,15 @@ license = "MIT"
 repository = "https://github.com/ijwino/typesep"
 
 [workspace.dependencies]
-sep-core = { path = "crates/sep-core" }
-sep-typst = { path = "crates/sep-typst" }
-sep-epub = { path = "crates/sep-epub" }
+typesep-model = { path = "crates/typesep-model" }
+typesep-style = { path = "crates/typesep-style" }
+typesep-html = { path = "crates/typesep-html" }
+typesep-net = { path = "crates/typesep-net" }
+typesep-typst = { path = "crates/typesep-typst" }
+typesep-epub = { path = "crates/typesep-epub" }
+typesep-compose = { path = "crates/typesep-compose" }
+source-sep = { path = "crates/source-sep" }
+source-lwp = { path = "crates/source-lwp" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"
@@ -31,9 +49,13 @@ typst-html = "0.15.1"
 typst-layout = "0.15.1"
 typst-kit = { version = "0.15.1", default-features = false, features = ["scan-fonts"] }
 mitex = "0.2.4"
+hypher = "0.1.7"
+unicode-script = "0.5.8"
 time = "0.3"
+siphasher = "1"
 ureq = { version = "3", features = ["gzip"] }
 zip = { version = "8", default-features = false, features = ["deflate-flate2"] }
+roxmltree = "0.21"
 
 [profile.dist]
 inherits = "release"

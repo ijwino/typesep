@@ -39,7 +39,7 @@ make test
 ```sh
 typesep turing-machine                                   # writes out/turing-machine.pdf
 typesep --format epub --preset ereader turing-machine    # an EPUB sized for e-readers
-typesep --merge "Logic" logic-classical logic-modal      # bundles three entries into one volume
+typesep --merge "Logic" logic-classical logic-modal      # bundles two entries into one volume
 typesep kant --paper a4 --font "EB Garamond" --leading 1.3
 typesep kant -s page.margins.top=1in -s toc.pageNumbers=true
 ```
@@ -53,8 +53,13 @@ that is easier to copy.
 ## License
 
 typesep is MIT ([LICENSE](LICENSE)). The TeX Gyre fonts inside it are under the
-[GUST Font License](crates/sep-typst/fonts/GUST-FONT-LICENSE.txt), and the licenses of the
-crates it is built from come with each release as `THIRD-PARTY-LICENSES.txt`.
+[GUST Font License](crates/typesep-typst/fonts/GUST-FONT-LICENSE.txt), and the Noto fonts it
+carries for Arabic, Devanagari and Hebrew under the SIL Open Font License 1.1
+([Arabic](crates/typesep-typst/fonts/OFL-arabic.txt),
+[Devanagari](crates/typesep-typst/fonts/OFL-devanagari.txt),
+[Hebrew](crates/typesep-typst/fonts/OFL-hebrew.txt);
+[where they come from](crates/typesep-typst/fonts/README.md)). The licenses of the crates it is
+built from come with each release as `THIRD-PARTY-LICENSES.txt`.
 
 ### The entries
 

@@ -1,0 +1,14 @@
+name: error: out of range
+arg: "style"
+arg: "-s"
+arg: "page.columns=0"
+cwd: root
+exit: 1
+--- stdout ---
+
+--- stderr ---
+typesep: invalid value for "page.columns" (--set): must be greater than 0
+  a whole number, greater than 0
+  default: 1
+
+--- end ---

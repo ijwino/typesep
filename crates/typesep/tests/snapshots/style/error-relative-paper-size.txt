@@ -1,0 +1,14 @@
+name: error: relative paper size
+arg: "style"
+arg: "--paper"
+arg: "10exx20ex"
+cwd: root
+exit: 1
+--- stdout ---
+
+--- stderr ---
+typesep: invalid value for "page.size" (--paper): paper dimensions need an absolute unit (pt, bp, mm, cm, in, pc, sp), got "10exx20ex"
+  a named size (a3, a4, a5, a6, b5, letter, legal, halfletter, digest) or "WIDTHxHEIGHT" like 5.5inx8.5in
+  default: "a5"
+
+--- end ---

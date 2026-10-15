@@ -1,0 +1,26 @@
+[package]
+name = "typesep-typst"
+description = "typesep renderer: the document model as Typst source, the embedded fonts, the World and the PDF"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+typesep-model.workspace = true
+typesep-style.workspace = true
+typst.workspace = true
+typst-pdf.workspace = true
+typst-html.workspace = true
+typst-layout.workspace = true
+typst-kit.workspace = true
+mitex.workspace = true
+hypher.workspace = true
+unicode-script.workspace = true
+time.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+typesep-compose.workspace = true
+regex.workspace = true
+tempfile.workspace = true
