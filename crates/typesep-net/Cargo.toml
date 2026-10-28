@@ -1,0 +1,25 @@
+[package]
+name = "typesep-net"
+description = "typesep fetching and library: the HTTP client, the store of fetched files, and what a source is"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# The scripted transport and clock the tests of the sources fetch with.
+testing = []
+
+[dependencies]
+typesep-model.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+dirs.workspace = true
+thiserror.workspace = true
+ureq.workspace = true
+time.workspace = true
+siphasher.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

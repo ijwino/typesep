@@ -1,0 +1,14 @@
+name: error: braces in a template
+arg: "style"
+arg: "--style"
+arg: "<tmp>/braces.yaml"
+cwd: root
+exit: 1
+--- stdout ---
+
+--- stderr ---
+typesep: invalid value for "pageFurniture.footer.center" (<tmp>/braces.yaml): expected text, not a mapping (quote text that starts with a brace, e.g. '{page}')
+  text with {title} {author} {section} {page} {pages} {edition} {date} tokens
+  default: ""
+
+--- end ---

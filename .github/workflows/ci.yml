@@ -21,17 +21,13 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Show the toolchain
         run: rustc -vV && cargo -V
 
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-          key: cargo-checks-${{ hashFiles('Cargo.lock') }}
+      - uses: Swatinem/rust-cache@v2
 
       - name: Formatting
         run: cargo fmt --all -- --check
@@ -42,13 +38,23 @@ jobs:
       - name: Tests
         run: cargo test --workspace --locked
 
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --bin typesep
+          bin=target/debug/typesep
+          "$bin" --version
+          "$bin" style --preset a5-book --paper a4 > /dev/null
+          "$bin" presets > /dev/null
+
       # The fixture corpus is not in the repository, so the model test skips itself here.
 
       - name: The style reference is what the binary prints
         shell: bash
         run: |
           set -euo pipefail
-          cargo run -q -p sep-cli --bin typesep --locked -- reference > "$RUNNER_TEMP/reference.md"
+          cargo run -q -p typesep --bin typesep --locked -- reference > "$RUNNER_TEMP/reference.md"
           diff -u docs/style-reference.md "$RUNNER_TEMP/reference.md" \
             || { echo "docs/style-reference.md is stale: run make docs" >&2; exit 1; }
 
@@ -70,20 +76,21 @@ jobs:
             ext: ""
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Show the toolchain
         run: rustc -vV && cargo -V
 
-      - uses: actions/cache@v6
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-          key: cargo-${{ matrix.platform }}-${{ hashFiles('Cargo.lock') }}
+          key: ${{ matrix.platform }}
 
       - name: Build
         run: cargo build --locked --bin typesep
+
+      - name: Tests
+        run: cargo test --workspace --locked
 
       - name: Smoke test
         shell: bash

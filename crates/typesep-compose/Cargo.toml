@@ -1,0 +1,14 @@
+[package]
+name = "typesep-compose"
+description = "typesep passes that make one document of several: the bilingual edition of two texts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+typesep-model.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

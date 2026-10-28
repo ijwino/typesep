@@ -6,6 +6,7 @@ use std::process::Command;
 use clap::{Args, Parser, Subcommand};
 use serde_json::Value;
 
+mod baselines;
 mod checks;
 mod licenses;
 
@@ -27,12 +28,14 @@ struct Cli {
 enum Task {
     /// Compare the model snapshots with what `dump model` prints, and report matching / total.
     Parity(Parity),
-    /// Typeset every fixture entry and report rendered / total.
+    /// Typeset every fixture entry and text and report rendered / total.
     RenderCheck(Walk),
-    /// Build every fixture entry as an EPUB, validate it with EPUBCheck, and report passing / total.
+    /// Build every fixture entry and text as an EPUB, validate it with EPUBCheck, and report passing / total.
     EpubCheck(Walk),
     /// Write THIRD-PARTY-LICENSES.txt, or resolve every license expression without writing it.
     Licenses(Licenses),
+    /// Typeset the corpus into the render snapshots: Typst source, EPUB members, page counts.
+    Baselines(Baselines),
 }
 
 #[derive(Args)]
@@ -43,12 +46,16 @@ struct Walk {
     /// Where the outputs go while they are being checked.
     #[arg(long, value_name = "DIR")]
     out: Option<PathBuf>,
-    /// Walk the whole library instead of the fixture set.
+    /// Walk the whole library, every source of it, instead of the fixture set.
     #[arg(long)]
     all: bool,
-    /// Leave the files behind instead of deleting them as they pass.
+    /// Leave the outputs behind instead of deleting them as they pass; the library copy goes
+    /// all the same.
     #[arg(long)]
     keep: bool,
+    /// The library the binary reads a copy of; the corpus's own by default.
+    #[arg(long, value_name = "DIR")]
+    library: Option<PathBuf>,
     /// Say what is happening, entry by entry.
     #[arg(long)]
     verbose: bool,
@@ -65,6 +72,28 @@ struct Licenses {
     /// Where to write the notice.
     #[arg(long, value_name = "FILE")]
     out: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct Baselines {
+    /// The binary to drive.
+    #[arg(long, value_name = "PATH", default_value = "target/release/typesep")]
+    exec: PathBuf,
+    /// Where the snapshots go; the corpus's snapshots/render by default.
+    #[arg(long, value_name = "DIR")]
+    out: Option<PathBuf>,
+    /// The library the binary reads a copy of; the corpus's own by default.
+    #[arg(long, value_name = "DIR")]
+    library: Option<PathBuf>,
+    /// Replace the snapshots that are there.
+    #[arg(long)]
+    bless: bool,
+    /// Leave the binary's own outputs and the library copy behind, in out/baselines.
+    #[arg(long)]
+    keep: bool,
+    /// Say what is happening, output by output.
+    #[arg(long)]
+    verbose: bool,
 }
 
 #[derive(Parser)]
@@ -91,10 +120,11 @@ struct Parity {
 
 const DEFAULT_EXEC: &str = "target/debug/typesep dump model {} --sections all --quiet";
 
-/// The corpus is thirty SEP entries and the models they parse to. It is not in this
-/// repository: the entries are copyright their authors and the SEP's Terms of Use grant no
-/// right to redistribute them, so it lives outside the tree. `TYPESEP_TEST_CORPUS` names the
-/// directory; it holds `library/` and `snapshots/model/`.
+/// The corpus is thirty SEP entries and six texts of the Wittgenstein Project, and the models
+/// they parse to. It is not in this repository: the entries are copyright their authors and the
+/// SEP's Terms of Use grant no right to redistribute them, and the project's texts are under
+/// licences of their own, so it lives outside the tree. `TYPESEP_TEST_CORPUS` names the
+/// directory; crates/typesep/tests/model.rs describes what it holds.
 fn corpus_dir() -> PathBuf {
     let named = |name: &str| {
         std::env::var_os(name)
@@ -115,7 +145,7 @@ fn corpus_subdir(name: &str) -> PathBuf {
     let dir = corpus_dir().join(name);
     if !dir.is_dir() {
         fail(&format!(
-            "no corpus at {}. The thirty fixture entries and their models are not in this \
+            "no corpus at {}. The fixture entries and texts and their models are not in this \
              repository; point TYPESEP_TEST_CORPUS at the directory holding library/ and \
              snapshots/model/.",
             dir.display()
@@ -134,16 +164,31 @@ fn main() -> std::process::ExitCode {
             checks::epub_check(walk, &root)
         }
         Task::Licenses(args) => licenses::run(&root, args.target, args.validate, args.out),
+        Task::Baselines(args) => baselines::run(baselines::BaselineArgs {
+            binary: root.join(&args.exec),
+            library: args.library.unwrap_or_else(|| corpus_subdir("library")),
+            models: corpus_subdir("snapshots/model"),
+            dest: args.out.map_or_else(
+                || corpus_subdir("snapshots").join("render"),
+                |out| root.join(out),
+            ),
+            work: root.join("out").join("baselines"),
+            bless: args.bless,
+            keep: args.keep,
+            verbose: args.verbose,
+        }),
     }
 }
 
 fn walk(args: Walk, root: &Path, name: &str) -> checks::CheckArgs {
     checks::CheckArgs {
         binary: root.join(&args.exec),
+        library: args.library.unwrap_or_else(|| corpus_subdir("library")),
         out: args
             .out
             .map_or_else(|| root.join("out").join(name), |out| root.join(out)),
         snapshots: corpus_subdir("snapshots/model"),
+        copy: root.join("out").join(format!("{name}-library")),
         all: args.all,
         keep: args.keep,
         verbose: args.verbose,
@@ -356,6 +401,58 @@ fn show(value: Option<&Value>) -> String {
 
 fn shell_quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
+}
+
+/// Leaves `command` no way to the network: every connection goes to a proxy that is not
+/// there, and no host is exempt. Whatever the library lacks then fails instead of being
+/// fetched, and a run with -v says each request it tried.
+pub(crate) fn offline(command: &mut Command) -> &mut Command {
+    command
+        .env("ALL_PROXY", "http://127.0.0.1:9")
+        .env_remove("NO_PROXY")
+        .env_remove("no_proxy")
+}
+
+/// What a run with -v asked the network for, said as a failure; none when it asked nothing.
+pub(crate) fn asked_the_network(stderr: &str) -> Option<String> {
+    let requests: Vec<&str> = stderr
+        .lines()
+        .filter(|line| line.starts_with("  GET "))
+        .collect();
+    (!requests.is_empty()).then(|| {
+        format!(
+            "the library lacks what it asked the network for: {}",
+            requests.join("; ")
+        )
+    })
+}
+
+/// The last `count` lines of `text` that are not blank, on one line.
+pub(crate) fn last_lines(text: &str, count: usize) -> String {
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    lines[lines.len().saturating_sub(count)..]
+        .iter()
+        .map(|line| line.trim())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Copies the directory `from` and everything in it to `to`.
+pub(crate) fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn fail(message: &str) -> ! {
